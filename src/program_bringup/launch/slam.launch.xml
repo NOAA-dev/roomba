@@ -1,0 +1,44 @@
+<launch>
+
+    <!-- Arguments -->
+    <arg name="use_sim_time" default="true"/>
+    <arg name="slam_config" default="$(find-pkg-share program_bringup)/config/slam_toolbox.yaml"/>
+
+    <!-- Map Saver Server -->
+    <node pkg="nav2_map_server"
+          exec="map_saver_server"
+          name="map_saver_server"
+          output="screen">
+        
+        <param name="save_map_timeout" value="5.0"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="free_thresh_default" value="0.196"/>
+        <param name="occupied_thresh_default" value="0.65"/>
+    
+    </node>
+
+    <!-- SLAM Toolbox -->
+    <node pkg="slam_toolbox"
+          exec="sync_slam_toolbox_node"
+          name="slam_toolbox"
+          output="screen">
+        
+        <param from="$(var slam_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    
+    </node>
+
+    <!-- Lifecycle Manager -->
+    <node pkg="nav2_lifecycle_manager"
+          exec="lifecycle_manager"
+          name="lifecycle_manager_slam"
+          output="screen">
+        
+        <param name="node_names" value="['map_saver_server','slam_toolbox']"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="bond_timeout" value="10.0"/>
+        <param name="autostart" value="true"/>
+    
+    </node>
+
+</launch>
