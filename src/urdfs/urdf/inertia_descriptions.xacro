@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<robot name="my_robo_v0" xmlns:xacro="https://www.ros.org/wiki/xacro">
+    <xacro:macro name="box_inertia" params="Mass x y z arr_xyz arr_rpy">
+        <inertial>
+            <mass value="${Mass}" />
+            <origin xyz="${arr_xyz}" rpy="${arr_rpy}" />
+            <inertia ixx="${(Mass/12) * (y*y + z*z)}" ixy="0" ixz="0"
+                     iyy="${(Mass/12) * (x*x + z*z)}" iyz="0"
+                     izz="${(Mass/12) * (y*y + x*x)}" />
+        </inertial>
+    </xacro:macro>
+
+    <xacro:macro name="cylinder_inertia" params="Mass r h arr_xyz arr_rpy">
+        <inertial>
+            <mass value="${Mass}" />
+            <origin xyz="${arr_xyz}" rpy="${arr_rpy}" />
+            <inertia ixx="${(Mass/12) * (3*r*r + h*h)}" ixy="0" ixz="0"
+                     iyy="${(Mass/12) * (3*r*r + h*h)}" iyz="0"
+                     izz="${(Mass/2) * (r*r)}" />
+        </inertial>
+    </xacro:macro>
+
+    <xacro:macro name="solid_sphere_inertia" params="Mass r arr_xyz arr_rpy">
+        <inertial>
+            <mass value="${Mass}" />
+            <origin xyz="${arr_xyz}" rpy="${arr_rpy}" />
+            <inertia ixx="${(2*Mass/5) * (r*r)}" ixy="0" ixz="0"
+                     iyy="${(2*Mass/5) * (r*r)}" iyz="0"
+                     izz="${(2*Mass/5) * (r*r)}" />
+        </inertial>
+    </xacro:macro>
+
+</robot>

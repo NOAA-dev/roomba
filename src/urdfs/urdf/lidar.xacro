@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:property name="lidar_radius" value="0.05" />
+    <xacro:property name="lidar_height" value="0.05" />
+
+    <link name="lidar_link">
+        <visual>
+            <geometry>
+                <cylinder radius="${lidar_radius}" length="${lidar_height}" />
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+            <material name="grey" />
+        </visual>
+        <collision>
+            <geometry>
+                <cylinder radius="${lidar_radius}" length="${lidar_height}" />
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 0 0"/>
+        </collision>
+        <xacro:cylinder_inertia Mass="0.1" r="${lidar_radius}" h="${lidar_height}" arr_xyz="0 0 0" arr_rpy="0 0 0"/>
+    </link>
+
+    <joint name="base_lidar_joint" type="fixed">
+        <parent link="base_link" />
+        <child link="lidar_link" />
+        <origin xyz="0 0 ${0.1 + (lidar_height) / 2.0}" rpy="0 0 0" />
+    </joint>
+
+    <link name="lidar_link_optical"/>
+
+    <joint name="lidar_optical_joint" type="fixed">
+        <parent link="lidar_link"/>
+        <child link="lidar_link_optical"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+    </joint>
+
+    <gazebo reference="lidar_link">
+        <sensor name="lidar" type="gpu_ray">
+            <always_on>true</always_on>
+            <update_rate>10</update_rate>
+            <visualize>true</visualize>
+            <gz_frame_id>lidar_link_optical</gz_frame_id>
+            <topic>scan</topic>
+
+            <ray>
+                <scan>
+                    <horizontal>
+                    <samples>360</samples>
+                    <resolution>1</resolution>
+                    <min_angle>-3.14159</min_angle>
+                    <max_angle>3.14159</max_angle>
+                    </horizontal>
+                </scan>
+
+                <range>
+                    <min>0.12</min>
+                    <max>12.0</max>
+                    <resolution>0.01</resolution>
+                </range>
+
+                <noise>
+                    <type>gaussian</type>
+                    <mean>0.0</mean>
+                    <stddev>0.01</stddev>
+                </noise>
+            </ray>
+
+        </sensor>
+    </gazebo>
+
+
+</robot>
