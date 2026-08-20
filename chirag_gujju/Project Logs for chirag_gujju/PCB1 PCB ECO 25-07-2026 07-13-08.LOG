@@ -1,0 +1,24 @@
+Added Component: Designator=Buck1(CONV_MC00100)
+Add component (AddParameter): Name = "Check_prices"; Value = "https://www.snapeda.com/parts/MC00100/YKS/view-part/?ref=eda"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "MF"; Value = "YKS"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "MP"; Value = "MC00100"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = "None"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "SnapEDA_Link"; Value = "https://www.snapeda.com/parts/MC00100/YKS/view-part/?ref=snap"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Component: Designator=Buck2(CONV_MC00100)
+Add component (AddParameter): Name = "Check_prices"; Value = "https://www.snapeda.com/parts/MC00100/YKS/view-part/?ref=eda"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "MF"; Value = "YKS"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "MP"; Value = "MC00100"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Package"; Value = "None"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "SnapEDA_Link"; Value = "https://www.snapeda.com/parts/MC00100/YKS/view-part/?ref=snap"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Value"; Value = ""; VariantName = "[No Variations]"
+Added Pin To Net: NetName=+12 Pin=Buck1-IN+
+Added Pin To Net: NetName=GND Pin=Buck1-IN-
+Added Pin To Net: NetName=NetBuck1_OUT+ Pin=Buck1-OUT+
+Added Pin To Net: NetName=GND Pin=Buck1-OUT-
+Added Pin To Net: NetName=+12 Pin=Buck2-IN+
+Added Pin To Net: NetName=GND Pin=Buck2-IN-
+Added Pin To Net: NetName=3v3 Pin=Buck2-OUT+
+Added Pin To Net: NetName=GND Pin=Buck2-OUT-
+Added Member To Class: ClassName=Sheet1 Member=Component Buck1 MC00100
+Added Member To Class: ClassName=Sheet1 Member=Component Buck2 MC00100
