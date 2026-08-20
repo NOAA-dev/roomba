@@ -1,0 +1,33 @@
+Removed Pin From Net: NetName=3v3 Pin=BNO-1
+Removed Pin From Net: NetName=GND Pin=BNO-2
+Change Component Footprint: Designator=BNO Old Footprint=66100311622 New Footprint=66100511622
+Change Component Comment : Designator=BNO Old Comment=66100311622 New Comment=66100511622
+Change component parameters: Designator = "BNO" ("BNO"); Footprint = "66100311622"; UniqueID = "\ZXDDLUHO" ("\ZXDDLUHO")
+Change component parameters (AddParameter): Name = "ComponentLink1Description"; Value = "Manufacturer"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "ComponentLink1URL"; Value = "http://www.we-online.de"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "ComponentLink2Description"; Value = "Datasheet"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "ComponentLink2URL"; Value = "http://katalog.we-online.de/em/datasheet/6610XX11622.pdf"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "Part Number"; Value = "66100511622"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "Pin Number"; Value = "5"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "Pitch"; Value = "2.54 mm"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "Published Date"; Value = "June 2017"; VariantName = "[No Variations]"
+Change component parameters (AddParameter): Name = "Publisher"; Value = "Wurth Elektronik"; VariantName = "[No Variations]"
+Added Component: Designator=J?(66100311622)
+Add component (AddParameter): Name = "ComponentLink1Description"; Value = "Manufacturer"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "ComponentLink1URL"; Value = "http://www.we-online.de"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "ComponentLink2Description"; Value = "Datasheet"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "ComponentLink2URL"; Value = "http://katalog.we-online.de/em/datasheet/6610XX11622.pdf"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Part Number"; Value = "66100311622"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Pin Number"; Value = "3"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Pitch"; Value = "2.54 mm"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Published Date"; Value = "June 2017"; VariantName = "[No Variations]"
+Add component (AddParameter): Name = "Publisher"; Value = "Wurth Elektronik"; VariantName = "[No Variations]"
+Added Pin To Net: NetName=3v3 Pin=BNO-5
+Added Pin To Net: NetName=GND Pin=J?-1
+Added Pin To Net: NetName=NetBNO_1 Pin=BNO-1
+Added Pin To Net: NetName=NetBNO_1 Pin=J?-3
+Added Net: Name=NetBNO_1
+Added Pin To Net: NetName=NetBNO_2 Pin=BNO-2
+Added Pin To Net: NetName=NetBNO_2 Pin=J?-2
+Added Net: Name=NetBNO_2
+Added Member To Class: ClassName=Sheet1 Member=Component J? 66100311622

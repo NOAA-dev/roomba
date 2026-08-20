@@ -1,0 +1,9 @@
+Removed Pin From Net: NetName=RB2_26 Pin=P2-10
+Removed Pin From Net: NetName=RF2_25 Pin=P2-11
+Removed Pin From Net: NetName=RF2_25 Pin=U?-J2-9
+Removed Pin From Net: NetName=RB2_26 Pin=U?-J2-10
+Added Pin To Net: NetName=RF2_25 Pin=P2-10
+Added Pin To Net: NetName=RB2_26 Pin=P2-11
+Added Pin To Net: NetName=RB2_26 Pin=U?-J2-9
+Added Pin To Net: NetName=RF2_25 Pin=U?-J2-10
+Added Member To Class: ClassName=Sheet1 Member=Component ultra3 66100411622
