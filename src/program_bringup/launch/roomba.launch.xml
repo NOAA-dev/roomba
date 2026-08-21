@@ -19,7 +19,7 @@
      <set_env name="GZ_SIM_RESOURCE_PATH"
          value="$(find-pkg-share program_bringup)/models"/> 
     <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
-        <arg name="gz_args" value="$(find-pkg-share program_bringup)/world/small_house.world -r" />
+        <arg name="gz_args" value="$(find-pkg-share program_bringup)/world/small_house.world -r -s" />
     </include>
 
     <node pkg="ros_gz_sim" exec="create" args="-topic robot_description" />
@@ -42,6 +42,40 @@
 
     <node pkg="robot_localization" exec="ekf_node" name="ekf_filter_node" output="screen">
         <param from="$(find-pkg-share program_bringup)/config/ekf.yaml"/>
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <!-- global_planners: A* on the validated map -->
+    <node pkg="global_planners" exec="a_star" name="a_star" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <!-- local_planners: pure pursuit path tracking + integrated VFH avoidance -->
+    <node pkg="local_planners" exec="pure_pursuit" name="pure_pursuit_node" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="coverage_planner" name="coverage_planner" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="frontier_explorer" name="frontier_explorer" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="reactive_explorer" name="object_avoider" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="manager_node" name="manager_node" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="data_logger" name="data_logger_node" output="screen">
         <param name="use_sim_time" value="true"/>
     </node>
 

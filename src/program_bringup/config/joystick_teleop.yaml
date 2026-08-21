@@ -18,25 +18,4 @@ joy_teleop:
           scale: 2.0
           offset: 0.0
 
-    gear1:
-      type: topic
-      interface_type: std_msgs/msg/Bool
-      topic_name: /simple_velocity_controller/gear_1  
-
-      deadman_buttons: [4]
-
-      message_value:
-        data:
-          value: true
-
-    gear2:
-      type: topic
-      interface_type: std_msgs/msg/Bool
-      topic_name: /simple_velocity_controller/gear_2
-
-      deadman_buttons: [6]
-
-      message_value:
-        data:
-          value: true
           

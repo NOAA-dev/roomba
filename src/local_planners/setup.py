@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            "pure_pursuit = local_planners.pure_pursuit:main"
         ],
     },
 )

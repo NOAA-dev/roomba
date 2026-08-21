@@ -12,7 +12,7 @@
             name="gz::sim::systems::DiffDrive">
             <left_joint>base_left_wheel_joint</left_joint>
             <right_joint>base_right_wheel_joint</right_joint>
-            <wheel_separation>0.2</wheel_separation>
+            <wheel_separation>0.23</wheel_separation>
             <wheel_radius>0.05</wheel_radius>
             <frame_id>odom</frame_id>
             <child_frame_id>roomba</child_frame_id>
