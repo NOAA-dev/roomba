@@ -32,7 +32,7 @@
     <!-- rviz starter  -->
     <node pkg="rviz2" exec="rviz2" args="-d $(var rviz_config_path)"/>
 
-    <!-- <node pkg="controller_manager" exec="spawner" args="joint_state_broadcaster"/> -->
+    <node pkg="controller_manager" exec="spawner" args="joint_state_broadcaster"/>
 
     <!-- diff drive controller -->
     <!-- <node pkg="controller_manager" exec="spawner" args="diff_drive_controller controller-ros-args 'ros-args remap ~/cmd_vel:=/cmd_vel'"/> -->
