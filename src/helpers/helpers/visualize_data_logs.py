@@ -3,7 +3,7 @@
 visualize_data_logs.py
 
 Visualizes the three CSVs produced by data_logger_node.py:
-  - odom_log_<stamp>.csv
+  - tf_log_<stamp>.csv
   - validated_map_log_<stamp>.csv
   - map_data_log_<stamp>.csv
 
@@ -13,11 +13,12 @@ Default usage (looks in ~/roomba, grabs the most recent run automatically):
 Pick a specific run by its timestamp suffix:
     python3 visualize_data_logs.py --stamp 20260716_142233
 
-Static 3-panel figure (trajectory / scores over time / latest map snapshot):
+Static figures, one per window (trajectory / scores over time / latest map
+snapshot):
     python3 visualize_data_logs.py --save out.png
 
-Step through every logged map snapshot as an animation (trajectory so far
-overlaid on each grid):
+Step through every logged map snapshot as an animation (map + trajectory
+superimposed, map_score readout in the top-right corner):
     python3 visualize_data_logs.py --animate --save out.mp4
     python3 visualize_data_logs.py --animate --save out.gif
 """
@@ -33,7 +34,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 
-DEFAULT_DIR = os.path.expanduser("~/roomba/collected_data")
+DEFAULT_DIR = os.path.expanduser("~/roomba")
 
 
 # ----------------------------------------------------------------------
@@ -41,27 +42,27 @@ DEFAULT_DIR = os.path.expanduser("~/roomba/collected_data")
 # ----------------------------------------------------------------------
 def find_run(data_dir, stamp=None):
     """Locate the three CSVs for a run. If stamp is None, use the most
-    recently modified odom_log_*.csv to infer the stamp."""
+    recently modified tf_log_*.csv to infer the stamp."""
     if stamp is None:
         candidates = sorted(
-            glob.glob(os.path.join(data_dir, "odom_log_*.csv")),
+            glob.glob(os.path.join(data_dir, "tf_log_*.csv")),
             key=os.path.getmtime,
         )
         if not candidates:
-            raise FileNotFoundError(f"No odom_log_*.csv found in {data_dir}")
+            raise FileNotFoundError(f"No tf_log_*.csv found in {data_dir}")
         latest = candidates[-1]
-        match = re.search(r"odom_log_(.+)\.csv$", os.path.basename(latest))
+        match = re.search(r"tf_log_(.+)\.csv$", os.path.basename(latest))
         stamp = match.group(1)
 
-    odom_path = os.path.join(data_dir, f"odom_log_{stamp}.csv")
+    tf_path = os.path.join(data_dir, f"tf_log_{stamp}.csv")
     summary_path = os.path.join(data_dir, f"validated_map_log_{stamp}.csv")
     map_data_path = os.path.join(data_dir, f"map_data_log_{stamp}.csv")
 
-    for p in (odom_path, summary_path, map_data_path):
+    for p in (tf_path, summary_path, map_data_path):
         if not os.path.exists(p):
             raise FileNotFoundError(f"Expected file not found: {p}")
 
-    return odom_path, summary_path, map_data_path, stamp
+    return tf_path, summary_path, map_data_path, stamp
 
 
 # ----------------------------------------------------------------------
@@ -70,7 +71,7 @@ def find_run(data_dir, stamp=None):
 def reconstruct_grid(row):
     width = int(row["map_width"])
     height = int(row["map_height"])
-    values = np.fromstring(row["grid_data"], sep=" ", dtype=np.int16)
+    values = np.array(row["grid_data"].split(), dtype=np.int16)
     grid = values.reshape(height, width)
     return grid
 
@@ -107,12 +108,12 @@ def draw_grid(ax, row):
 # ----------------------------------------------------------------------
 # Static figures (three separate windows)
 # ----------------------------------------------------------------------
-def make_trajectory_figure(odom_df, stamp):
+def make_trajectory_figure(tf_df, stamp):
     fig, ax = plt.subplots(figsize=(7, 7), num=f"Trajectory - {stamp}")
-    ax.plot(odom_df["x"], odom_df["y"], "-", linewidth=1, color="tab:blue", label="trajectory")
-    ax.scatter(odom_df["x"].iloc[0], odom_df["y"].iloc[0], color="green", zorder=5, label="start")
-    ax.scatter(odom_df["x"].iloc[-1], odom_df["y"].iloc[-1], color="red", zorder=5, label="end")
-    ax.set_title("Robot trajectory (odometry)")
+    ax.plot(tf_df["x"], tf_df["y"], "-", linewidth=1, color="tab:blue", label="trajectory")
+    ax.scatter(tf_df["x"].iloc[0], tf_df["y"].iloc[0], color="green", zorder=5, label="start")
+    ax.scatter(tf_df["x"].iloc[-1], tf_df["y"].iloc[-1], color="red", zorder=5, label="end")
+    ax.set_title("Robot trajectory (map -> roomba TF)")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
     ax.axis("equal")
@@ -140,11 +141,11 @@ def make_scores_figure(summary_df, stamp):
     return fig
 
 
-def make_map_figure(odom_df, map_df, stamp):
+def make_map_figure(tf_df, map_df, stamp):
     fig, ax = plt.subplots(figsize=(7, 7), num=f"Latest map - {stamp}")
     last_row = map_df.iloc[-1]
     draw_grid(ax, last_row)
-    ax.plot(odom_df["x"], odom_df["y"], "-", linewidth=1, color="tab:blue", alpha=0.8)
+    ax.plot(tf_df["x"], tf_df["y"], "-", linewidth=1, color="tab:blue", alpha=0.8)
     ax.set_title(
         f"Latest map snapshot (counter={int(last_row['counter'])}, source={last_row['source']})"
     )
@@ -158,7 +159,7 @@ def make_map_figure(odom_df, map_df, stamp):
 # ----------------------------------------------------------------------
 # Animation over map snapshots
 # ----------------------------------------------------------------------
-def make_animation(odom_df, summary_df, map_df):
+def make_animation(tf_df, summary_df, map_df):
     fig, ax = plt.subplots(figsize=(7, 7), num="Map + trajectory animation")
 
     # map_data_log doesn't carry map_score itself - pull it in from the
@@ -171,7 +172,7 @@ def make_animation(odom_df, summary_df, map_df):
         row = map_df.iloc[i]
         draw_grid(ax, row)
 
-        traj = odom_df[odom_df["ros_time_sec"] <= row["ros_time_sec"]]
+        traj = tf_df[tf_df["ros_time_sec"] <= row["ros_time_sec"]]
         if not traj.empty:
             ax.plot(traj["x"], traj["y"], "-", linewidth=1.2, color="tab:blue")
             ax.scatter(traj["x"].iloc[-1], traj["y"].iloc[-1], color="red", zorder=5, s=30)
@@ -210,9 +211,9 @@ def main():
     parser.add_argument("--save", default=None, help="Output path (.png for static, .mp4/.gif for --animate)")
     args = parser.parse_args()
 
-    odom_path, summary_path, map_data_path, stamp = find_run(args.dir, args.stamp)
+    tf_path, summary_path, map_data_path, stamp = find_run(args.dir, args.stamp)
 
-    odom_df = pd.read_csv(odom_path)
+    tf_df = pd.read_csv(tf_path)
     summary_df = pd.read_csv(summary_path)
     map_df = pd.read_csv(map_data_path)
 
@@ -220,7 +221,7 @@ def main():
         raise ValueError("map_data_log CSV is empty - no map snapshots to visualize yet")
 
     if args.animate:
-        fig, anim = make_animation(odom_df, summary_df, map_df)
+        fig, anim = make_animation(tf_df, summary_df, map_df)
         if args.save:
             if args.save.endswith(".gif"):
                 anim.save(args.save, writer="pillow", fps=2)
@@ -230,9 +231,9 @@ def main():
         else:
             plt.show()
     else:
-        traj_fig = make_trajectory_figure(odom_df, stamp)
+        traj_fig = make_trajectory_figure(tf_df, stamp)
         scores_fig = make_scores_figure(summary_df, stamp)
-        map_fig = make_map_figure(odom_df, map_df, stamp)
+        map_fig = make_map_figure(tf_df, map_df, stamp)
 
         if args.save:
             base, ext = os.path.splitext(args.save)
