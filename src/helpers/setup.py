@@ -28,6 +28,9 @@ setup(
             "map_validator = helpers.map_validator:main",
             "data_logger = helpers.data_logger:main",
             "reactive_explorer = helpers.reactive_explorer:main",
+            "coverage_planner = helpers.bcd_coverage_planner_node:main",
+            "frontier_explorer = helpers.frontier_explorer:main",
+            "manager_node = helpers.manager_node:main",
         ],
     },
 )

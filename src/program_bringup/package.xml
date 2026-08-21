@@ -11,8 +11,6 @@
 
   <depend>rclcpp</depend>
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>turtlesim</exec_depend>
-  <exec_depend>turtle_chaser</exec_depend>
   <exec_depend>urdfs</exec_depend>
   <exec_depend>helpers</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
@@ -26,6 +24,9 @@
   <exec_depend>joy</exec_depend>
   <exec_depend>joy_teleop</exec_depend>
   <exec_depend>rviz2</exec_depend>
+  <exec_depend>global_planners</exec_depend>
+  <exec_depend>local_planners</exec_depend>
+  <exec_depend>custom_interfaces</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

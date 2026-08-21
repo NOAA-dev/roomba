@@ -104,13 +104,6 @@
         <mu2 value="0.01" />
     </gazebo>
 
-    <!-- <controllers> -->
-    <gazebo>
-        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-            <parameters>/home/chirag/roomba/src/program_bringup/config/controllers.yaml</parameters>
-        </plugin>
-    </gazebo>
-
         <!-- Wheels -->
     <gazebo reference="left_wheel">
         <mu1>1000000000000000.0</mu1>

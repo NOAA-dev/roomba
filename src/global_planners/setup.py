@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            "a_star = global_planners.a_star_node:main"
         ],
     },
 )
