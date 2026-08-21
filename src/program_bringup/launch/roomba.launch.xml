@@ -58,10 +58,10 @@
     <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen">
         <param name="use_sim_time" value="true"/>
     </node>
-
+<!-- 
     <node pkg="helpers" exec="coverage_planner" name="coverage_planner" output="screen">
         <param name="use_sim_time" value="true"/>
-    </node>
+    </node> -->
 
     <node pkg="helpers" exec="frontier_explorer" name="frontier_explorer" output="screen">
         <param name="use_sim_time" value="true"/>
