@@ -10,7 +10,7 @@
     <!-- TF publisher  -->
     <node pkg="robot_state_publisher" exec="robot_state_publisher">
         <param name="robot_description"
-               value="$(command 'xacro $(var urdf_path)')" />
+               value="$(command 'xacro $(var urdf_path) controllers_config_path:=$(find-pkg-share program_bringup)/config/controllers.yaml')" />
         <param name="publish_fixed_joints" value="true"/>
         <param name="use_sim_time" value="true"/>
     </node>
@@ -58,8 +58,8 @@
     <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen">
         <param name="use_sim_time" value="true"/>
     </node>
-<!-- 
-    <node pkg="helpers" exec="coverage_planner" name="coverage_planner" output="screen">
+
+    <!-- <node pkg="helpers" exec="coverage_planner" name="coverage_planner" output="screen">
         <param name="use_sim_time" value="true"/>
     </node> -->
 
