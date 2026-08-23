@@ -15,8 +15,13 @@
         </inertia>
 
       </inertial>
-      <collision name="collision"><pose>0.000000 0.000000 0.340892 0 0 0</pose>
-        <geometry><box><size>0.740850 0.479106 0.692297</size></box></geometry>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://aws_robomaker_residential_NightStand_01/meshes/aws_NightStand_01_collision.DAE</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
       </collision>
       <visual name="visual">
 	    <geometry>
