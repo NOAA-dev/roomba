@@ -19,7 +19,7 @@
      <set_env name="GZ_SIM_RESOURCE_PATH"
          value="$(find-pkg-share program_bringup)/models"/> 
     <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
-        <arg name="gz_args" value="$(find-pkg-share program_bringup)/world/small_house.world -r -s -v 1" />
+        <arg name="gz_args" value="$(find-pkg-share program_bringup)/world/small_house.world -r -s" />
     </include>
 
     <node pkg="ros_gz_sim" exec="create" args="-topic robot_description" />

@@ -40,7 +40,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 from std_msgs.msg import ColorRGBA
 
-from custom_interfaces.msg import Validatedmap
+from custom_interfaces.msg import ValidateMap
 
 
 # ======================================================================
@@ -390,7 +390,7 @@ class CoveragePlannerNode(Node):
         )
 
         self.sub = self.create_subscription(
-            Validatedmap, self.validate_map_topic, self.validate_map_callback, sub_qos
+            ValidateMap, self.validate_map_topic, self.validate_map_callback, sub_qos
         )
         self.marker_pub = self.create_publisher(MarkerArray, self.marker_topic, marker_qos)
 
@@ -405,7 +405,7 @@ class CoveragePlannerNode(Node):
         )
 
     # ------------------------------------------------------------
-    def validate_map_callback(self, msg: Validatedmap):
+    def validate_map_callback(self, msg: ValidateMap):
         # Only recompute BCD when the map has actually changed (new
         # counter). Repeated messages for the same map are ignored.
         if self._last_counter is not None and msg.counter == self._last_counter:

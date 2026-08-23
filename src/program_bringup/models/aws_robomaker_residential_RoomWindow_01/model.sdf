@@ -5,8 +5,13 @@
       <inertial>
         <mass>1</mass>
       </inertial>
-      <collision name="collision"><pose>-0.001900 -0.000767 0.851400 0 0 0</pose>
-        <geometry><box><size>0.117715 2.364249 1.705980</size></box></geometry>
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://aws_robomaker_residential_RoomWindow_01/meshes/aws_RoomWindow_01_collision.DAE</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
       </collision>
       <visual name="visual">
 	    <geometry>
