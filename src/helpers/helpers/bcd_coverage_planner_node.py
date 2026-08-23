@@ -40,7 +40,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point
 from std_msgs.msg import ColorRGBA
 
-from custom_interfaces.msg import ValidateMap
+from custom_interfaces.msg import Validatedmap
 
 
 # ======================================================================
@@ -351,7 +351,7 @@ class CoveragePlannerNode(Node):
         super().__init__("coverage_planner")
 
         # ---- parameters ----
-        self.declare_parameter("validate_map_topic", "/validate_map")
+        self.declare_parameter("validate_map_topic", "/validated_map")
         self.declare_parameter("marker_topic", "/bcd/cell_markers")
         self.declare_parameter("occupied_thresh", 50)      # >= this -> obstacle
         self.declare_parameter("unknown_as_obstacle", True)  # -1 cells -> obstacle
@@ -390,7 +390,7 @@ class CoveragePlannerNode(Node):
         )
 
         self.sub = self.create_subscription(
-            ValidateMap, self.validate_map_topic, self.validate_map_callback, sub_qos
+            Validatedmap, self.validate_map_topic, self.validated_map_callback, sub_qos
         )
         self.marker_pub = self.create_publisher(MarkerArray, self.marker_topic, marker_qos)
 
@@ -405,7 +405,7 @@ class CoveragePlannerNode(Node):
         )
 
     # ------------------------------------------------------------
-    def validate_map_callback(self, msg: ValidateMap):
+    def validated_map_callback(self, msg: Validatedmap):
         # Only recompute BCD when the map has actually changed (new
         # counter). Repeated messages for the same map are ignored.
         if self._last_counter is not None and msg.counter == self._last_counter:

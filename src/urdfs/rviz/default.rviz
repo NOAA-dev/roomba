@@ -8,6 +8,7 @@ Panels:
         - /LaserScan1/Topic1
         - /Map1/Topic1
         - /Path1/Topic1
+        - /MarkerArray1/Topic1
       Splitter Ratio: 0.5
     Tree Height: 502
   - Class: rviz_common/Selection
@@ -87,24 +88,23 @@ Visualization Manager:
       Show Names: false
       Tree:
         map:
-          {}
-        odom:
-          roomba:
-            base_link:
-              camera_link:
-                camera_link_optical:
+          odom:
+            roomba:
+              base_link:
+                camera_link:
+                  camera_link_optical:
+                    {}
+                caster_wheel:
                   {}
-              caster_wheel:
-                {}
-              imu_link:
-                {}
-              left_wheel:
-                {}
-              lidar_link:
-                lidar_link_optical:
+                imu_link:
                   {}
-              right_wheel:
-                {}
+                left_wheel:
+                  {}
+                lidar_link:
+                  lidar_link_optical:
+                    {}
+                right_wheel:
+                  {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -197,6 +197,7 @@ Visualization Manager:
         Grid: true
         LaserScan: true
         Map: true
+        MarkerArray: true
         Path: true
         Pose: true
         RobotModel: true
@@ -308,6 +309,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /path
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: false
+      Name: MarkerArray
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /bcd/cell_markers
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -354,25 +367,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 21.781965255737305
+      Distance: 26.82582664489746
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 1.479880452156067
-        Y: -0.807371199131012
-        Z: -0.09763883054256439
+        X: -0.8918988108634949
+        Y: 2.430103063583374
+        Z: -0.09536657482385635
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5597962141036987
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 6.27358341217041
+      Yaw: 0.030399587005376816
     Saved: ~
 Window Geometry:
   Camera:
