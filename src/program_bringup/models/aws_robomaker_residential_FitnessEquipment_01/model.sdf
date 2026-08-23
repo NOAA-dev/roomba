@@ -5,13 +5,8 @@
       <inertial>
         <mass>80</mass>
       </inertial>
-      <collision name="collision">
-        <geometry>
-          <mesh>
-            <uri>model://aws_robomaker_residential_FitnessEquipment_01/meshes/aws_FitnessEquipment_01_collision.DAE</uri>
-            <scale>1 1 1</scale>
-          </mesh>
-        </geometry>
+      <collision name="collision"><pose>0.012856 0.000062 0.443945 0 0 0</pose>
+        <geometry><box><size>1.117760 1.114249 0.899123</size></box></geometry>
       </collision>
       <visual name="visual">
 	    <geometry>
