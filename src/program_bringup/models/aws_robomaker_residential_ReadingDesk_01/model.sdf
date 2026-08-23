@@ -13,13 +13,8 @@
             <izz> 0.57375</izz>
           </inertia>
       </inertial>
-      <collision name="collision">
-        <geometry>
-          <mesh>
-            <uri>model://aws_robomaker_residential_ReadingDesk_01/meshes/aws_ReadingDesk_01_collision.DAE</uri>
-            <scale>1 1 1</scale>
-          </mesh>
-        </geometry>
+      <collision name="collision"><pose>-0.002938 0.000884 0.371098 0 0 0</pose>
+        <geometry><box><size>0.532125 1.154390 0.745106</size></box></geometry>
       </collision>
       <visual name="visual">
 	    <geometry>
