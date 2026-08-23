@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 
-DEFAULT_DIR = os.path.expanduser("~/roomba")
+DEFAULT_DIR = os.path.expanduser("~/roomba/collected_data")
 
 
 # ----------------------------------------------------------------------
