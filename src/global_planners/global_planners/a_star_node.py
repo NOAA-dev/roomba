@@ -5,6 +5,7 @@ import math
 import cv2
 import heapq
 import time
+from skimage.graph import MCP_Geometric
 from custom_interfaces.msg import Validatedmap, NodeEnableStates
 from tf2_ros import Buffer, TransformListener, TransformException
 from rclpy.duration import Duration
@@ -134,36 +135,40 @@ class AStarNode(Node):
             pass
 
     def dijkstra_heuristic(self, goal_x, goal_y):
-        h_map = np.full(self.Grid_.shape, np.inf, dtype=np.float32)
+        # h_map = np.full(self.Grid_.shape, np.inf, dtype=np.float32)
 
-        pq = []
-        visited_set = set()
-        heapq.heappush(pq, (0.0, goal_x, goal_y))
-        h_map[goal_y, goal_x] = 0.0
-        motions = [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1),(1, 1, np.sqrt(2)), (-1, -1, np.sqrt(2)), (1, -1, np.sqrt(2)), (-1, 1, np.sqrt(2))]
-        pos_x, pos_y = self.world_to_grid(self.x_pos, self.y_pos)
+        # pq = []
+        # visited_set = set()
+        # heapq.heappush(pq, (0.0, goal_x, goal_y))
+        # h_map[goal_y, goal_x] = 0.0
+        # motions = [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1),(1, 1, np.sqrt(2)), (-1, -1, np.sqrt(2)), (1, -1, np.sqrt(2)), (-1, 1, np.sqrt(2))]
+        # pos_x, pos_y = self.world_to_grid(self.x_pos, self.y_pos)
 
-        while pq:
-            cost, x, y = heapq.heappop(pq)
-            if (x, y) in visited_set:
-                continue
-            visited_set.add((x, y))
+        # while pq:
+        #     cost, x, y = heapq.heappop(pq)
+        #     if (x, y) in visited_set:
+        #         continue
+        #     visited_set.add((x, y))
 
-            if (x, y) == (pos_x, pos_y):
-                break
+        #     if (x, y) == (pos_x, pos_y):
+        #         break
 
-            for dx, dy, move_cost in motions:
-                nx, ny = x + dx, y + dy
-                if 0 > nx or 0 > ny or nx >= self.Grid_.shape[1] or ny >= self.Grid_.shape[0]:
-                    continue
-                if self.Grid_[ny, nx] != 0:
-                    continue
-                new_cost = cost + move_cost
-                if new_cost < h_map[ny, nx]:
-                    h_map[ny, nx] = new_cost
-                    heapq.heappush(pq, (new_cost, nx, ny))
+        #     for dx, dy, move_cost in motions:
+        #         nx, ny = x + dx, y + dy
+        #         if 0 > nx or 0 > ny or nx >= self.Grid_.shape[1] or ny >= self.Grid_.shape[0]:
+        #             continue
+        #         if self.Grid_[ny, nx] != 0:
+        #             continue
+        #         new_cost = cost + move_cost
+        #         if new_cost < h_map[ny, nx]:
+        #             h_map[ny, nx] = new_cost
+        #             heapq.heappush(pq, (new_cost, nx, ny))
 
-        return h_map
+        # return h_map
+        cost_array = np.where(self.Grid_ == 0, 1.0, np.inf).astype(np.float64)
+        mcp = MCP_Geometric(cost_array, fully_connected=True)
+        costs, _ = mcp.find_costs([(goal_y, goal_x)])
+        return (costs).astype(np.float32)
 
     def heuristic_cost(self, x, y):
         gx, gy = self.world_to_grid(x, y)
@@ -171,9 +176,8 @@ class AStarNode(Node):
             return np.inf
         return self.h_map_[gy, gx]
 
-    def euler_plus_heading(self, x, y, theta):
-        cost = np.hypot((self.Goal_[0] - x), (self.Goal_[1] - y))
-        cost = cost + np.arctan2(np.sin(self.Goal_[2] - theta), np.cos(self.Goal_[2] - theta))
+    def euler_dist(self, x, y):
+        cost = np.hypot((self.Goal_[0] - x), (self.Goal_[1] - y))/self.map_resolution_
         return cost
 
     def discretize(self, x_grid, y_grid, theta):
@@ -269,7 +273,7 @@ class AStarNode(Node):
 
             self.closed_set_.add(current_key)
             expansions += 1
-            if expansions >= 1000:
+            if expansions >= 100000000:
                 break
 
             dist_to_goal = math.hypot(current.x - goal[0], current.y - goal[1])
@@ -305,7 +309,7 @@ class AStarNode(Node):
                         state = 1
 
                     c = self.clearance_cost(x_new, y_new)
-                    h_cost = max(self.heuristic_cost(x_new, y_new), self.euler_plus_heading(x_new, y_new, theta_new))
+                    h_cost = max(self.heuristic_cost(x_new, y_new), self.euler_dist(x_new, y_new))
                     g_cost = current.g + self.dt_ * (abs(v) + abs(w)) + reverse_cost + c
 
                     new_node = node_state(x_new, y_new, theta_new, v, w, g_cost, current, state)
