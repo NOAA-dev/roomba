@@ -539,7 +539,7 @@ class ManagerNode(Node):
         self.state = "FROZEN_REUSE"
         self._cancel_blob_nav_timer()
         self._set_slam_paused(True, lambda ok: None)
-        self._publish_enable_state(map_validator=False, a_star=False)
+        self._publish_enable_state(map_validator=False, a_star=True)
         self.get_logger().info("map confirmed unchanged — pausing SLAM/validator, reusing saved map")
 
 
