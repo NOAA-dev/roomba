@@ -135,36 +135,6 @@ class AStarNode(Node):
             pass
 
     def dijkstra_heuristic(self, goal_x, goal_y):
-        # h_map = np.full(self.Grid_.shape, np.inf, dtype=np.float32)
-
-        # pq = []
-        # visited_set = set()
-        # heapq.heappush(pq, (0.0, goal_x, goal_y))
-        # h_map[goal_y, goal_x] = 0.0
-        # motions = [(1, 0, 1), (-1, 0, 1), (0, 1, 1), (0, -1, 1),(1, 1, np.sqrt(2)), (-1, -1, np.sqrt(2)), (1, -1, np.sqrt(2)), (-1, 1, np.sqrt(2))]
-        # pos_x, pos_y = self.world_to_grid(self.x_pos, self.y_pos)
-
-        # while pq:
-        #     cost, x, y = heapq.heappop(pq)
-        #     if (x, y) in visited_set:
-        #         continue
-        #     visited_set.add((x, y))
-
-        #     if (x, y) == (pos_x, pos_y):
-        #         break
-
-        #     for dx, dy, move_cost in motions:
-        #         nx, ny = x + dx, y + dy
-        #         if 0 > nx or 0 > ny or nx >= self.Grid_.shape[1] or ny >= self.Grid_.shape[0]:
-        #             continue
-        #         if self.Grid_[ny, nx] != 0:
-        #             continue
-        #         new_cost = cost + move_cost
-        #         if new_cost < h_map[ny, nx]:
-        #             h_map[ny, nx] = new_cost
-        #             heapq.heappush(pq, (new_cost, nx, ny))
-
-        # return h_map
         cost_array = np.where(self.Grid_ == 0, 1.0, np.inf).astype(np.float64)
         mcp = MCP_Geometric(cost_array, fully_connected=True)
         costs, _ = mcp.find_costs([(goal_y, goal_x)])
