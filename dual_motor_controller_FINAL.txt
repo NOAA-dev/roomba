@@ -1,0 +1,759 @@
+/*
+  ==========================================================================
+  ESP32 Dual-Motor Closed-Loop Angle/Speed Controller  (v3)
+  ==========================================================================
+  Changes from v3.0, based on your Motor A bench-test summary:
+    - COUNTS_PER_REV_A set to your confirmed ~5070 (was an unverified
+      placeholder before).
+    - Motor A's command/direction convention is now wired in - but via a
+      DIFFERENT mechanism than Motor B's fix, on purpose. See the long
+      comment in PIN DEFINITIONS for why, and the swapped
+      motA.rpwmChannel/lpwmChannel assignment in setup().
+    - Feedforward is now PER-MOTOR instead of one shared global model.
+      Motor A's feedforward is set to 0 (no feedforward yet) since you
+      explicitly said its PWM->speed characterization hasn't been done -
+      applying Motor B's fitted numbers to A would have been a guess
+      dressed up as a measurement. See FEEDFORWARD MODEL section.
+    - pidA still holds Motor B's tuned gains as an inherited starting
+      point, not a validated value for A - flagged in place.
+
+  Changes from v2, based on your Motor B bench-test summary:
+    - Feedforward model replaced with your measured fit (was a rough *1.3
+      guess). New model, and its limits, are documented where it's defined.
+    - COUNTS_PER_REV_B updated to confirmed 5100 (resolving the earlier
+      5070-vs-5400 discrepancy). Note this makes the feedforward fit
+      below slightly stale, since it was built from speed data computed
+      against the old 5400 figure - see the note by COUNTS_PER_REV_B.
+    - FIXED Motor B's encoder sign (confirmed correct by the V2 10 test -
+      POS B climbed monotonically the whole time, so direction is fine).
+    - FIXED the shake/wobble from that test: it wasn't a sign problem,
+      it was velocity-measurement noise at low speed getting amplified
+      by the PID - see updateMotor()'s velocity-measurement block for
+      the full explanation. Widened the measurement window and added
+      light smoothing.
+    - Added a safety note recapping the prior PID-runaway/sparking
+      incident, right above the PID section.
+
+  Hardware:
+    - 2x Orange 12V 100RPM Johnson Geared DC Motors (~180:1 gear ratio,
+      nominal - not the same thing as measured CPR, see below)
+    - 2x BTS7960 motor drivers, RPWM/LPWM only (R_EN/L_EN externally
+      tied to 5V on your board, always enabled - confirmed by test)
+    - 2x OE-28 Hall effect quadrature encoders
+
+  Pin mapping (unchanged - tell me if your schematic differs):
+    MOTOR A (LEFT):  RPWM=GPIO32  LPWM=GPIO33  ENC=GPIO16/17  [direction+CPR bench-tested, feedforward NOT YET]
+    MOTOR B (RIGHT): RPWM=GPIO25  LPWM=GPIO26  ENC=GPIO18/19  [fully bench-tested]
+
+  ==========================================================================
+  SERIAL COMMANDS (115200 baud, newline terminated) - TRANSPORT LAYER ONLY
+  ==========================================================================
+    M1 <angle_deg> <speed_deg_s>   Move motor A by relative angle at speed
+    M2 <angle_deg> <speed_deg_s>   Move motor B by relative angle at speed
+    MM <angle_deg> <speed_deg_s>   Move BOTH motors together
+    V1 <speed_deg_s>               Continuous velocity mode, motor A (0 = stop)
+    V2 <speed_deg_s>               Continuous velocity mode, motor B (0 = stop)
+    VV <speed_deg_s>               Continuous velocity mode, BOTH motors
+    S                              Ramped stop, both motors (decelerates to 0)
+    Z                              Zero/reset both encoder position counters
+    A <deg_s2>                     Set accel/decel limit (both motors)
+    K1 <Kp> <Ki> <Kd>              Motor A velocity-PID gains
+    K2 <Kp> <Ki> <Kd>              Motor B velocity-PID gains
+    C                              Toggle raw encoder count streaming (calibration)
+    P                              Print current status once
+    ?                              Print help
+  ==========================================================================
+*/
+
+#include <Arduino.h>
+struct MotorControl;
+// ---------------------------------------------------------------------
+// PIN DEFINITIONS
+// ---------------------------------------------------------------------
+// Motor B bench-test findings (RPWM=25/LPWM=26/ENC=18,19):
+//   - LPWM active -> shaft turns CLOCKWISE     -> encoder counts INCREASE
+//   - RPWM active -> shaft turns ANTICLOCKWISE -> encoder counts DECREASE
+// applyMotorPWM() treats pwmSigned >= 0 as "drive RPWM" (anticlockwise on
+// B), which per the above naturally produces *negative* raw encoder
+// counts for a *positive* commanded PWM. You confirmed that mismatch is
+// real (positive command -> negative raw counts) - that's exactly the
+// shape of bug that made the velocity PID diverge instead of settle
+// before (commanded and measured pulling in opposite directions), which
+// lines up with the runaway/sparking you saw. FIXED below: encoderIsrB
+// now inverts Motor B's count direction (subtracts instead of adds),
+// so positive commanded PWM now increases encCountB, matching
+// rampedVelDegS's sign to measuredVelDegS's sign for Motor B. Net
+// result for B: "positive" ends up meaning RPWM/anticlockwise.
+//
+// Motor A bench-test findings (RPWM=32/LPWM=33/ENC=16,17) - raw physical
+// behavior is IDENTICAL to B's:
+//   - LPWM active -> CLOCKWISE     -> encoder counts INCREASE (same as B)
+//   - RPWM active -> ANTICLOCKWISE -> encoder counts DECREASE (same as B)
+// But your stated convention for A is the OPPOSITE of what B ended up
+// with: "+command -> LPWM -> clockwise -> +counts" (for B, +command
+// ended up meaning RPWM/anticlockwise). Rather than invert Motor A's
+// encoder like B's (which would make +command mean RPWM/anticlockwise
+// for A too, contradicting what you specified), I instead swapped which
+// physical channel applyMotorPWM's ">=0" branch drives for Motor A - see
+// motA.rpwmChannel/lpwmChannel in setup(). That way +command physically
+// drives LPWM on A, matching your spec exactly, and encoderIsrA is left
+// completely unmodified (its native/un-inverted count direction already
+// reads +counts on clockwise, so no encoder-side change is needed for A).
+//
+// Net effect: A and B now use genuinely different internal conventions
+// for what "positive" means physically (CW for A, CCW for B). That's
+// intentional per what each of you measured/specified, not a bug or
+// inconsistency to "fix" later - but it's easy to forget, so if anyone
+// (including future you) is puzzled why the two motors are wired up
+// differently in code despite being the same hardware, this is why.
+// This also happens to be exactly what you'd expect on a real
+// differential-drive robot with mirror-mounted left/right motors, where
+// "both wheels roll forward" corresponds to opposite absolute rotation
+// directions on each side - so this asymmetry likely reflects real
+// mechanical mounting, not an error in either motor's testing.
+// ---------------------------------------------------------------------
+#define MOTOR_A_RPWM 32
+#define MOTOR_A_LPWM 33
+#define ENC_A_C1     16
+#define ENC_A_C2     17
+
+#define MOTOR_B_RPWM 25
+#define MOTOR_B_LPWM 26
+#define ENC_B_C1     18
+#define ENC_B_C2     19
+
+// ---------------------------------------------------------------------
+// LEDC (PWM) CONFIG -- classic Arduino-ESP32 core v2.x API.
+// On core v3.x, swap ledcSetup/ledcAttachPin/ledcWrite(channel,...) for
+// ledcAttach(pin,freq,res) / ledcWrite(pin,duty).
+// ---------------------------------------------------------------------
+#define PWM_FREQ_HZ   20000
+#define PWM_RES_BITS  8
+#define PWM_MAX       230
+
+#define CH_A_RPWM 0
+#define CH_A_LPWM 1
+#define CH_B_RPWM 2
+#define CH_B_LPWM 3
+
+// ---------------------------------------------------------------------
+// CALIBRATED CONSTANTS
+// ---------------------------------------------------------------------
+// Motor B (RPWM=25/LPWM=26/ENC=18,19): confirmed 5100 CPR. Earlier notes
+// had two inconsistent numbers (~5070 from manual testing, 5400 used
+// during the fixed-PWM sweep) - 5100 is the resolved/confirmed value.
+// Note the feedforward fit below was originally built using speed data
+// computed against the old 5400 figure; a ~6% CPR change shifts the
+// deg/s values that fit was based on by the same ~6%, so the feedforward
+// coefficients are now slightly off too and could use a re-fit against
+// this corrected CPR if accuracy at specific speeds matters to you.
+double COUNTS_PER_REV_A = 5070.0;   // Motor A - confirmed by bench test
+double COUNTS_PER_REV_B = 5100.0;   // Motor B - confirmed
+
+// ---------------------------------------------------------------------
+// FEEDFORWARD MODEL - PER MOTOR
+// ---------------------------------------------------------------------
+// From your fixed-PWM characterization of Motor B driven via LPWM
+// (clockwise) only, at CPR=5400:
+//     PWM 30  -> motor did not start (static-friction deadband)
+//     PWM 50  -> ~1.08 rad/s      PWM 75  -> ~2.32 rad/s
+//     PWM 100 -> ~3.34 rad/s      PWM 150 -> ~5.38 rad/s
+//     PWM 200 -> ~7.39 rad/s (~70.6 RPM)
+// Least-squares fit: PWM ~= 23.28 * omega(rad/s) + 25.10, RMS residual
+// ~= 3.17 PWM counts. Converted to the deg/s units used everywhere else
+// in this file (23.28 * pi/180 = 0.4062):
+double FF_SLOPE_B = 0.4062;
+double FF_OFFSET_B = 25.10;
+// Deadband update: further testing confirmed the static-friction PWM
+// deadband is ~35 (max) for BOTH Motor A and Motor B, not just the
+// PWM=30 single data point B's original sweep found. Any PWM magnitude
+// below ~35 risks not starting the motor from rest on either motor.
+// NOT YET VALIDATED beyond that one direction/motor:
+//   - No sweep data exists for Motor B's RPWM/anticlockwise direction.
+//   - The fit describes the already-moving (kinetic) regime. PWM=30
+//     didn't move the motor at all, which is a real deadband *above*
+//     the fitted zero-speed intercept of 25.10 - so very small nonzero
+//     speed commands may just stall rather than creep slowly.
+//
+// Motor A has NOT been characterized yet (you said so explicitly) - set
+// to 0/0 so it applies NO feedforward rather than silently borrowing
+// Motor B's numbers, which would be a guess dressed up as data. Position
+// mode and low-effort velocity moves on A will rely on PID alone until
+// you run A through the same PWM sweep and fill these in. Do keep the
+// confirmed ~35 PWM deadband (above) in mind when picking sweep points -
+// don't waste sweep points below it.
+double FF_SLOPE_A = 0.0;
+double FF_OFFSET_A = 0.0;
+
+// Confirmed empirically for both motors - not currently used to gate any
+// logic below, just documented here as a reference value for future
+// tuning/sweep work (e.g. don't bother sweeping PWM points below this).
+double CONFIRMED_DEADBAND_PWM_MAX = 35.0;
+
+// Feedforward is now per-motor: each MotorControl carries its own
+// ffSlope/ffOffset (set in setup() from the constants above), so a motor
+// with no characterization data yet simply gets zero feedforward instead
+// of inheriting another motor's fit.
+double motorFeedforwardPWM(MotorControl &m, double speedDegS);
+
+// ---------------------------------------------------------------------
+// !! SAFETY NOTE - READ BEFORE RE-ENABLING CLOSED-LOOP CONTROL !!
+// A previous closed-loop PID test on this hardware ran away (motor
+// vibrating, visible internal sparking), traced to the encoder sign
+// mismatch just fixed in encoderIsrB() above. That fix is untested on
+// real hardware. Before trusting PID again: re-test from scratch as if
+// it's new code - start with a small commanded velocity (e.g. 'V2 20'),
+// confirm the printed VEL B now has the SAME sign as what you commanded,
+// consider testing with PWM_MAX temporarily reduced well below 230, and
+// be ready to send 'S' (or cut power) immediately if the motor
+// accelerates instead of settling toward the commanded speed.
+// ---------------------------------------------------------------------
+
+// ---------------------------------------------------------------------
+// MOTION LIMITS / PID DEFAULTS (tune to your robot's load/friction)
+// ---------------------------------------------------------------------
+double PROFILE_ACCEL_DEG_S2 = 60.0;   // accel/decel limit - also governs
+                                       // how fast direction can reverse
+double POS_HOLD_DEADBAND_DEG = 0.5;
+double POS_HOLD_KP = 3.0;
+
+struct PIDGains {
+  double kp, ki, kd;
+};
+PIDGains pidA = {2.5, 8.0, 0.02};
+PIDGains pidB = {2.5, 8.0, 0.02};
+
+// ---------------------------------------------------------------------
+// ENCODER STATE (full 4x quadrature decode via interrupts on both channels)
+// ---------------------------------------------------------------------
+volatile long encCountA = 0;
+volatile long encCountB = 0;
+volatile uint8_t lastStateA = 0;
+volatile uint8_t lastStateB = 0;
+
+const int8_t QUAD_TABLE[16] = {
+   0, -1,  1,  0,
+   1,  0,  0, -1,
+  -1,  0,  0,  1,
+   0,  1, -1,  0
+};
+
+void IRAM_ATTR encoderIsrA() {
+  uint8_t s = (digitalRead(ENC_A_C1) << 1) | digitalRead(ENC_A_C2);
+  uint8_t idx = (lastStateA << 2) | s;
+  encCountA += QUAD_TABLE[idx];
+  lastStateA = s;
+}
+
+void IRAM_ATTR encoderIsrB() {
+  uint8_t s = (digitalRead(ENC_B_C1) << 1) | digitalRead(ENC_B_C2);
+  uint8_t idx = (lastStateB << 2) | s;
+  // Sign INVERTED vs Motor A on purpose - see PIN DEFINITIONS note above.
+  // Confirmed: positive commanded PWM (RPWM) was producing negative raw
+  // counts on Motor B; subtracting instead of adding here makes positive
+  // command -> positive measured velocity, matching what the PID expects.
+  encCountB -= QUAD_TABLE[idx];
+  lastStateB = s;
+}
+
+// ---------------------------------------------------------------------
+// PER-MOTOR CONTROL STATE
+// ---------------------------------------------------------------------
+enum ControlMode { MODE_IDLE, MODE_POSITION, MODE_VELOCITY };
+
+struct MotorControl {
+  ControlMode mode = MODE_IDLE;
+
+  // POSITION mode (trapezoidal profile) targets
+  long startCount = 0;
+  long targetCount = 0;
+  double profileMaxVelDegS = 0;
+  unsigned long profileStartMs = 0;
+  double accelTimeS = 0, cruiseTimeS = 0, decelTimeS = 0, totalTimeS = 0;
+  bool holding = false;
+
+  // VELOCITY mode target (continuous, e.g. future ROS2 cmd_vel)
+  double velocityTargetDegS = 0;
+
+  // shared: accel-limited "commanded" velocity actually fed to the PID.
+  // This is what guarantees no instant forward<->reverse jump, in BOTH modes.
+  double rampedVelDegS = 0;
+  double accelDegS2 = 60.0;
+
+  // PID state
+  double integral = 0;
+  double lastError = 0;
+  unsigned long lastPidMs = 0;
+
+  // measurement
+  long lastCount = 0;
+  unsigned long lastVelMs = 0;
+  double measuredVelDegS = 0;
+
+  int rpwmChannel, lpwmChannel;
+  double countsPerRev;
+  PIDGains *gains;
+  double ffSlope = 0, ffOffset = 0; // per-motor feedforward - see FEEDFORWARD MODEL
+};
+
+// Defined here (not up by the FF_SLOPE_A/B constants) since it needs the
+// MotorControl type. Uses whichever ffSlope/ffOffset this motor was
+// configured with in setup() - Motor A currently has both at 0, so this
+// returns 0 for A until you characterize it.
+double motorFeedforwardPWM(MotorControl &m, double speedDegS) {
+  if (fabs(speedDegS) < 0.01) return 0.0;
+  double sign = (speedDegS < 0) ? -1.0 : 1.0;
+  return sign * (m.ffSlope * fabs(speedDegS) + m.ffOffset);
+}
+
+MotorControl motA;
+MotorControl motB;
+
+bool calibrationMode = false;
+unsigned long lastTelemetryMs = 0;
+unsigned long lastCalPrintMs = 0;
+
+// =======================================================================
+// ============================ CORE API ================================
+// Everything below, until the "TRANSPORT LAYER" banner, is transport-
+// agnostic. It only touches motor hardware, encoders, and PID/profile
+// math - no Serial calls. This is the part you keep when you swap in a
+// ROS2 serial bridge later; you'd just call these functions from your
+// ROS2 message callbacks instead of from the text-command parser below.
+// =======================================================================
+
+double countsToDeg(long counts, double countsPerRev) {
+  return (double)counts * 360.0 / countsPerRev;
+}
+
+long degToCounts(double deg, double countsPerRev) {
+  return (long)round(deg * countsPerRev / 360.0);
+}
+
+void applyMotorPWM(MotorControl &m, double pwmSigned) {
+  pwmSigned = constrain(pwmSigned, -PWM_MAX, PWM_MAX);
+  int mag = (int)fabs(pwmSigned);
+  if (pwmSigned >= 0) {
+    ledcWrite(m.rpwmChannel, mag);
+    ledcWrite(m.lpwmChannel, 0);
+  } else {
+    ledcWrite(m.rpwmChannel, 0);
+    ledcWrite(m.lpwmChannel, mag);
+  }
+}
+
+// Immediate hard-stop: cuts PWM directly, no ramp. Only used internally
+// once rampedVelDegS has already reached (or is very near) zero, or for
+// power-up/fault init. Prefer motorStop() for anything commanded live.
+void motorHardStop(MotorControl &m) {
+  ledcWrite(m.rpwmChannel, 0);
+  ledcWrite(m.lpwmChannel, 0);
+  m.mode = MODE_IDLE;
+  m.holding = false;
+  m.integral = 0;
+  m.rampedVelDegS = 0;
+}
+
+// --- Core API: relative angle move at up to maxSpeedDegS (trapezoidal) ---
+void motorMoveRelative(MotorControl &m, volatile long &encCount, double angleDeg, double maxSpeedDegS) {
+  m.startCount = encCount;
+  m.targetCount = encCount + degToCounts(angleDeg, m.countsPerRev);
+  double dist = fabs(angleDeg);
+  double vmax = fabs(maxSpeedDegS);
+  double a = m.accelDegS2;
+
+  if (dist < 0.01 || vmax < 0.01) return;
+
+  double tAccel = vmax / a;
+  double dAccel = 0.5 * a * tAccel * tAccel;
+
+  if (2 * dAccel > dist) {
+    vmax = sqrt(dist * a);
+    tAccel = vmax / a;
+    m.accelTimeS = tAccel;
+    m.cruiseTimeS = 0;
+    m.decelTimeS = tAccel;
+  } else {
+    double cruiseDist = dist - 2 * dAccel;
+    m.accelTimeS = tAccel;
+    m.cruiseTimeS = cruiseDist / vmax;
+    m.decelTimeS = tAccel;
+  }
+  m.profileMaxVelDegS = vmax * (angleDeg < 0 ? -1.0 : 1.0);
+  m.totalTimeS = m.accelTimeS + m.cruiseTimeS + m.decelTimeS;
+  m.profileStartMs = millis();
+  m.mode = MODE_POSITION;
+  m.holding = false;
+  m.integral = 0;
+  m.lastError = 0;
+  m.lastPidMs = millis();
+}
+
+// --- Core API: continuous velocity command (e.g. future ROS2 cmd_vel) ---
+// Direction changes and magnitude changes are all accel-limited by the
+// ramp in updateMotor() - this call just sets the *target*, it does not
+// jump the motor there.
+void motorSetVelocity(MotorControl &m, double velDegS) {
+  m.mode = MODE_VELOCITY;
+  m.holding = false;
+  m.velocityTargetDegS = velDegS;
+  if (m.lastPidMs == 0) m.lastPidMs = millis();
+}
+
+// --- Core API: ramped stop (decelerates to 0, does not cut power instantly) ---
+void motorStop(MotorControl &m) {
+  motorSetVelocity(m, 0.0);
+}
+
+// --- Core API: zero the position reference ---
+void motorZero(volatile long &encCount, MotorControl &m) {
+  noInterrupts();
+  encCount = 0;
+  interrupts();
+  m.lastCount = 0;
+}
+
+double motorGetPositionDeg(MotorControl &m, volatile long &encCount) {
+  return countsToDeg(encCount, m.countsPerRev);
+}
+
+double motorGetVelocityDegS(MotorControl &m) {
+  return m.measuredVelDegS;
+}
+
+// Returns instantaneous target velocity (deg/s) for the current point in
+// a POSITION-mode trapezoidal profile.
+double profileVelocity(MotorControl &m, double t) {
+  double vmaxAbs = fabs(m.profileMaxVelDegS);
+  double sign = (m.profileMaxVelDegS < 0) ? -1.0 : 1.0;
+  double v;
+  if (t < m.accelTimeS) {
+    v = (m.accelTimeS > 0) ? (vmaxAbs * (t / m.accelTimeS)) : vmaxAbs;
+  } else if (t < m.accelTimeS + m.cruiseTimeS) {
+    v = vmaxAbs;
+  } else if (t < m.totalTimeS) {
+    double td = t - m.accelTimeS - m.cruiseTimeS;
+    v = vmaxAbs * (1.0 - (td / m.decelTimeS));
+  } else {
+    v = 0;
+  }
+  return v * sign;
+}
+
+// Main per-motor control update. Call at ~100Hz+. Handles:
+//   1. measured velocity from encoder counts
+//   2. figuring out "what velocity do we want right now" per mode
+//   3. accel-limited ramping of that velocity target (THE anti-instant-
+//      reversal feature - applies in every mode, including stop)
+//   4. velocity PID -> PWM
+void updateMotor(MotorControl &m, volatile long &encCount) {
+  unsigned long now = millis();
+  double dt = (now - m.lastPidMs) / 1000.0;
+  if (dt < 0.005) return; // cap control loop rate ~100-200Hz
+  m.lastPidMs = now;
+
+  long currentCount = encCount;
+
+  // Velocity is measured by differencing encoder counts over a window.
+  // At low commanded speeds this window sees very few raw counts (e.g.
+  // ~3 counts in 20ms at 10 deg/s and CPR=5400) - single-count noise
+  // from encoder bounce/loop jitter then swings the computed velocity by
+  // tens of deg/s even during smooth real motion, which the PID reacts
+  // to as if it were a real error and jerks the PWM around (this is what
+  // caused the shake/wobble you saw at V2 10 - POS B was climbing
+  // smoothly and monotonically the whole time; only the noisy VEL B
+  // readings were swinging sign). Widened window + light smoothing below
+  // to cut that noise down before it reaches the PID.
+  unsigned long velDt = now - m.lastVelMs;
+  if (velDt >= 50) {
+    double degMoved = countsToDeg(currentCount - m.lastCount, m.countsPerRev);
+    double rawVel = degMoved / (velDt / 1000.0);
+    const double VEL_FILTER_ALPHA = 0.3; // lower = smoother but laggier
+    m.measuredVelDegS = VEL_FILTER_ALPHA * rawVel + (1.0 - VEL_FILTER_ALPHA) * m.measuredVelDegS;
+    m.lastCount = currentCount;
+    m.lastVelMs = now;
+  }
+
+  if (m.mode == MODE_IDLE) return;
+
+  // ---- Step 1: what velocity do we WANT (unramped target)? ----
+  double wantedVel = 0;
+
+  if (m.mode == MODE_POSITION) {
+    if (!m.holding) {
+      double t = (now - m.profileStartMs) / 1000.0;
+      if (t >= m.totalTimeS) {
+        m.holding = true;
+        wantedVel = 0;
+      } else {
+        wantedVel = profileVelocity(m, t);
+      }
+    }
+    if (m.holding) {
+      long errCounts = m.targetCount - currentCount;
+      double errDeg = countsToDeg(errCounts, m.countsPerRev);
+      if (fabs(errDeg) <= POS_HOLD_DEADBAND_DEG) {
+        // fully settled: ramp remaining velocity to 0, then hard stop
+        m.rampedVelDegS = 0;
+        motorHardStop(m);
+        return;
+      }
+      wantedVel = constrain(errDeg * POS_HOLD_KP, -30.0, 30.0);
+    }
+  } else if (m.mode == MODE_VELOCITY) {
+    wantedVel = m.velocityTargetDegS;
+    if (fabs(wantedVel) < 0.01 && fabs(m.rampedVelDegS) < 0.5 && fabs(m.measuredVelDegS) < 1.0) {
+      // commanded + actual velocity both essentially zero -> fully stop
+      motorHardStop(m);
+      return;
+    }
+  }
+
+  // ---- Step 2: accel-limited ramp toward wantedVel. This is what
+  // guarantees the motor never jumps from +speed to -speed in one step,
+  // in POSITION mode (profile already does this internally) AND in
+  // VELOCITY mode AND on stop/direction-reversal. ----
+  double maxDelta = m.accelDegS2 * dt;
+  double diff = wantedVel - m.rampedVelDegS;
+  if (fabs(diff) <= maxDelta) {
+    m.rampedVelDegS = wantedVel;
+  } else {
+    m.rampedVelDegS += (diff > 0 ? maxDelta : -maxDelta);
+  }
+
+  // ---- Step 3: velocity PID tracking the ramped target ----
+  double velError = m.rampedVelDegS - m.measuredVelDegS;
+  m.integral += velError * dt;
+  m.integral = constrain(m.integral, -150, 150);
+  double deriv = (dt > 0) ? (velError - m.lastError) / dt : 0;
+  m.lastError = velError;
+
+  double output = m.gains->kp * velError + m.gains->ki * m.integral + m.gains->kd * deriv;
+  double ff = motorFeedforwardPWM(m, m.rampedVelDegS); // see FEEDFORWARD MODEL above
+  output += ff;
+
+  applyMotorPWM(m, output);
+}
+
+// =======================================================================
+// ========================= TRANSPORT LAYER ============================
+// Text-command serial parser + human-readable telemetry. This is the
+// part to replace when you bring in ROS2 (micro-ROS, rosserial, or a
+// custom framed binary protocol). It only ever calls the Core API
+// functions above - it holds no motor-control logic itself, so a ROS2
+// node callback can call motorMoveRelative()/motorSetVelocity()/
+// motorStop()/motorZero() exactly the same way this parser does.
+// =======================================================================
+
+void printHelp() {
+  Serial.println(F("Commands:"));
+  Serial.println(F("  M1 <angle_deg> <speed_deg_s>   move motor A (position mode)"));
+  Serial.println(F("  M2 <angle_deg> <speed_deg_s>   move motor B (position mode)"));
+  Serial.println(F("  MM <angle_deg> <speed_deg_s>   move both"));
+  Serial.println(F("  V1 <speed_deg_s>               motor A continuous velocity (0=stop)"));
+  Serial.println(F("  V2 <speed_deg_s>               motor B continuous velocity (0=stop)"));
+  Serial.println(F("  VV <speed_deg_s>               both motors continuous velocity"));
+  Serial.println(F("  S                              ramped stop, both motors"));
+  Serial.println(F("  Z                              zero encoders"));
+  Serial.println(F("  A <deg_s2>                     set accel/decel limit"));
+  Serial.println(F("  K1 <Kp> <Ki> <Kd>               motor A PID gains"));
+  Serial.println(F("  K2 <Kp> <Ki> <Kd>               motor B PID gains"));
+  Serial.println(F("  C                              toggle raw count stream (calibration)"));
+  Serial.println(F("  P                              print status once"));
+}
+
+void printStatus() {
+  Serial.print(F("POS A="));
+  Serial.print(motorGetPositionDeg(motA, encCountA), 2);
+  Serial.print(F("deg  VEL A="));
+  Serial.print(motorGetVelocityDegS(motA), 2);
+  Serial.print(F("deg/s   |   POS B="));
+  Serial.print(motorGetPositionDeg(motB, encCountB), 2);
+  Serial.print(F("deg  VEL B="));
+  Serial.print(motorGetVelocityDegS(motB), 2);
+  Serial.println(F("deg/s"));
+}
+
+void handleCommand(String line) {
+  line.trim();
+  if (line.length() == 0) return;
+
+  if (calibrationMode) {
+    if (line.equalsIgnoreCase("C")) {
+      calibrationMode = false;
+      Serial.println(F("Calibration mode OFF"));
+    }
+    return;
+  }
+
+  int sp1 = line.indexOf(' ');
+  String cmd = (sp1 == -1) ? line : line.substring(0, sp1);
+  cmd.toUpperCase();
+
+  if (cmd == "M1" || cmd == "M2" || cmd == "MM") {
+    String rest = (sp1 == -1) ? "" : line.substring(sp1 + 1);
+    rest.trim();
+    int sp2 = rest.indexOf(' ');
+    if (sp2 == -1) { Serial.println(F("ERR: need angle and speed")); return; }
+    double angle = rest.substring(0, sp2).toDouble();
+    double speed = rest.substring(sp2 + 1).toDouble();
+    if (speed <= 0) { Serial.println(F("ERR: speed must be > 0")); return; }
+
+    if (cmd == "M1") {
+      motorMoveRelative(motA, encCountA, angle, speed);
+    } else if (cmd == "M2") {
+      motorMoveRelative(motB, encCountB, angle, speed);
+    } else {
+      motorMoveRelative(motA, encCountA, angle, speed);
+      motorMoveRelative(motB, encCountB, angle, speed);
+    }
+    Serial.print(cmd); Serial.print(F(": moving ")); Serial.print(angle);
+    Serial.print(F(" deg @ ")); Serial.print(speed); Serial.println(F(" deg/s"));
+
+  } else if (cmd == "V1" || cmd == "V2" || cmd == "VV") {
+    String rest = line.substring(sp1 + 1);
+    double v = rest.toDouble();
+    if (cmd == "V1") motorSetVelocity(motA, v);
+    else if (cmd == "V2") motorSetVelocity(motB, v);
+    else { motorSetVelocity(motA, v); motorSetVelocity(motB, v); }
+    Serial.print(cmd); Serial.print(F(": target velocity ")); Serial.print(v); Serial.println(F(" deg/s (ramped)"));
+
+  } else if (cmd == "S") {
+    motorStop(motA);
+    motorStop(motB);
+    Serial.println(F("Ramped stop issued to both motors"));
+  } else if (cmd == "Z") {
+    motorZero(encCountA, motA);
+    motorZero(encCountB, motB);
+    Serial.println(F("Encoders zeroed"));
+  } else if (cmd == "A") {
+    double a = line.substring(sp1 + 1).toDouble();
+    if (a > 0) {
+      motA.accelDegS2 = a;
+      motB.accelDegS2 = a;
+      Serial.print(F("Accel set to ")); Serial.println(a);
+    }
+  } else if (cmd == "K1" || cmd == "K2") {
+    String rest = line.substring(sp1 + 1);
+    rest.trim();
+    int s2 = rest.indexOf(' ');
+    int s3 = rest.indexOf(' ', s2 + 1);
+    if (s2 == -1 || s3 == -1) { Serial.println(F("ERR: need Kp Ki Kd")); return; }
+    double kp = rest.substring(0, s2).toDouble();
+    double ki = rest.substring(s2 + 1, s3).toDouble();
+    double kd = rest.substring(s3 + 1).toDouble();
+    PIDGains &g = (cmd == "K1") ? pidA : pidB;
+    g.kp = kp; g.ki = ki; g.kd = kd;
+    Serial.print(cmd); Serial.print(F(" gains set: Kp=")); Serial.print(kp);
+    Serial.print(F(" Ki=")); Serial.print(ki); Serial.print(F(" Kd=")); Serial.println(kd);
+  } else if (cmd == "C") {
+    calibrationMode = true;
+    Serial.println(F("Calibration mode ON - rotate output shaft by hand,"));
+    Serial.println(F("watch raw counts, send 'C' again to exit."));
+  } else if (cmd == "P") {
+    printStatus();
+  } else if (cmd == "?") {
+    printHelp();
+  } else {
+    Serial.println(F("Unknown command. Send ? for help."));
+  }
+}
+
+String serialBuffer = "";
+
+void pollSerial() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (serialBuffer.length() > 0) {
+        handleCommand(serialBuffer);
+        serialBuffer = "";
+      }
+    } else {
+      serialBuffer += c;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// SETUP
+// ---------------------------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  pinMode(ENC_A_C1, INPUT_PULLUP);
+  pinMode(ENC_A_C2, INPUT_PULLUP);
+  pinMode(ENC_B_C1, INPUT_PULLUP);
+  pinMode(ENC_B_C2, INPUT_PULLUP);
+
+  lastStateA = (digitalRead(ENC_A_C1) << 1) | digitalRead(ENC_A_C2);
+  lastStateB = (digitalRead(ENC_B_C1) << 1) | digitalRead(ENC_B_C2);
+
+  attachInterrupt(digitalPinToInterrupt(ENC_A_C1), encoderIsrA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_A_C2), encoderIsrA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_B_C1), encoderIsrB, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_B_C2), encoderIsrB, CHANGE);
+
+  ledcSetup(CH_A_RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
+  ledcSetup(CH_A_LPWM, PWM_FREQ_HZ, PWM_RES_BITS);
+  ledcSetup(CH_B_RPWM, PWM_FREQ_HZ, PWM_RES_BITS);
+  ledcSetup(CH_B_LPWM, PWM_FREQ_HZ, PWM_RES_BITS);
+
+  ledcAttachPin(MOTOR_A_RPWM, CH_A_RPWM);
+  ledcAttachPin(MOTOR_A_LPWM, CH_A_LPWM);
+  ledcAttachPin(MOTOR_B_RPWM, CH_B_RPWM);
+  ledcAttachPin(MOTOR_B_LPWM, CH_B_LPWM);
+
+  // Motor A: rpwmChannel/lpwmChannel SWAPPED on purpose vs the physical
+  // pin names - see the long comment in PIN DEFINITIONS. This makes
+  // applyMotorPWM()'s "pwmSigned >= 0" branch physically drive LPWM
+  // (CH_A_LPWM) for Motor A, so +command -> LPWM -> clockwise -> +counts
+  // as you specified, with encoderIsrA left completely untouched.
+  motA.rpwmChannel = CH_A_LPWM;
+  motA.lpwmChannel = CH_A_RPWM;
+  motA.countsPerRev = COUNTS_PER_REV_A;
+  motA.accelDegS2 = PROFILE_ACCEL_DEG_S2;
+  motA.gains = &pidA;      // inherited from Motor B's tuning - NOT validated for A
+  motA.ffSlope = FF_SLOPE_A;   // 0 - not characterized yet
+  motA.ffOffset = FF_OFFSET_A; // 0 - not characterized yet
+
+  motB.rpwmChannel = CH_B_RPWM;
+  motB.lpwmChannel = CH_B_LPWM;
+  motB.countsPerRev = COUNTS_PER_REV_B;
+  motB.accelDegS2 = PROFILE_ACCEL_DEG_S2;
+  motB.gains = &pidB;
+  motB.ffSlope = FF_SLOPE_B;
+  motB.ffOffset = FF_OFFSET_B;
+
+  motorHardStop(motA);
+  motorHardStop(motB);
+
+  Serial.println(F("=== ESP32 Dual Motor Controller v3 ready ==="));
+  printHelp();
+}
+
+// ---------------------------------------------------------------------
+// LOOP
+// ---------------------------------------------------------------------
+void loop() {
+  pollSerial();
+
+  if (calibrationMode) {
+    if (millis() - lastCalPrintMs >= 100) {
+      lastCalPrintMs = millis();
+      Serial.print(F("Raw counts  A=")); Serial.print(encCountA);
+      Serial.print(F("   B=")); Serial.println(encCountB);
+    }
+    return;
+  }
+
+  updateMotor(motA, encCountA);
+  updateMotor(motB, encCountB);
+
+  bool active = (motA.mode != MODE_IDLE) || (motB.mode != MODE_IDLE);
+  if (active && millis() - lastTelemetryMs >= 150) {
+    lastTelemetryMs = millis();
+    printStatus();
+  }
+}

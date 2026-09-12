@@ -1,0 +1,1163 @@
+/*
+  ================================================================
+  SINGLE-MOTOR BTS7960 + ENCODER TEST SUITE
+  ================================================================
+
+  PURPOSE
+  -------
+  Reusable bench-test program for ONE DC geared motor with:
+
+    - BTS7960 / IBT-2 style driver
+    - RPWM + LPWM control
+    - Quadrature encoder
+
+  TESTS
+  -----
+    1 = Motor direction test
+        Ramp LPWM up -> down
+        Ramp RPWM up -> down
+        Confirms both motor directions work.
+
+    2 = Encoder direction test
+        Runs each direction with a ramp.
+        Continuously reports encoder counts.
+        Establishes:
+          - physical motor direction
+          - encoder count direction
+          - encoder counts/rev observed during the test
+
+    3 = Dead-band test
+        Slowly increases PWM one step at a time.
+        Stops at the first encoder movement.
+        This intentionally does NOT use a normal speed ramp,
+        because ramping would hide the true startup threshold.
+
+    4 = PWM vs encoder-speed test
+        Steps through a configurable PWM list.
+        Each PWM is reached using a ramp.
+        Motor settles for a configurable period.
+        Reports:
+          - PWM
+          - encoder counts
+          - rad/s
+          - RPM
+        Intended for feed-forward / motor characterization.
+
+  SERIAL COMMANDS
+  ----------------
+    1 = Test 1: motor direction
+    2 = Test 2: encoder direction
+    3 = Test 3: dead-band
+    4 = Test 4: PWM vs speed
+    S = stop motor immediately
+    Z = zero encoder
+    P = print current encoder count
+    ? = show help
+
+  ================================================================
+  CONFIGURATION
+  ================================================================
+  Change ONLY the section below when moving this test suite
+  to another motor.
+
+  Example Motor B:
+    RPWM = 25
+    LPWM = 26
+    ENC A = 18
+    ENC B = 19
+
+  Example Motor A:
+    RPWM = 32
+    LPWM = 33
+    ENC A = 16
+    ENC B = 17
+
+  ================================================================
+*/
+
+#include <Arduino.h>
+
+
+// ================================================================
+// USER CONFIGURATION
+// ================================================================
+
+// ---------- MOTOR PINS ----------
+
+const int RPWM_PIN = 32;
+const int LPWM_PIN = 33;
+
+// ---------- ENCODER PINS ----------
+
+const int ENC_A_PIN = 16;
+const int ENC_B_PIN = 17;
+
+// ---------- ENCODER CPR ----------
+//
+// Enter your currently known/measured output-shaft CPR.
+// This is used only for converting counts -> rad/s/RPM.
+//
+// Set 0 if CPR is not known yet.
+//
+double COUNTS_PER_REV = 5070.0;
+
+// ---------- ENCODER SIGN ----------
+//
+//  +1 = normal quadrature sign
+//  -1 = invert reported count direction
+//
+// Change this only after Test 2 if you want a specific
+// physical direction to correspond to positive counts.
+//
+const int ENCODER_DIRECTION = 1;
+
+
+// ================================================================
+// PWM CONFIGURATION
+// ================================================================
+
+const int RPWM_CHANNEL = 0;
+const int LPWM_CHANNEL = 1;
+
+const int PWM_FREQ = 20000;
+const int PWM_RES  = 8;
+
+const int PWM_MAX = 200;
+
+// Maximum PWM used by normal direction/speed tests.
+const int TEST_MAX_PWM = 200;
+
+
+// ================================================================
+// RAMP CONFIGURATION
+// ================================================================
+
+// Delay between PWM increments during ramps.
+//
+// Example:
+// 10 ms means 0 -> 200 takes about 2 seconds.
+const int RAMP_STEP_DELAY_MS = 10;
+
+// Pause between changing from one direction to the other.
+const int DIRECTION_CHANGE_PAUSE_MS = 1000;
+
+// Hold time at maximum PWM during Test 1 / 2.
+const int DIRECTION_HOLD_MS = 1500;
+
+
+// ================================================================
+// TEST 3 — DEAD BAND
+// ================================================================
+
+// PWM increment during startup/dead-band test.
+const int DEADBAND_PWM_STEP = 1;
+
+// Time allowed for the motor to respond at each PWM.
+const int DEADBAND_STEP_DELAY_MS = 200;
+
+// Minimum encoder movement regarded as real motion.
+const long DEADBAND_MIN_COUNTS = 2;
+
+// Maximum PWM to test.
+const int DEADBAND_MAX_PWM = 100;
+
+
+// ================================================================
+// TEST 4 — PWM / SPEED CHARACTERIZATION
+// ================================================================
+
+// PWM points to test.
+//
+// They are reached using a ramp, then held steady.
+const int SPEED_TEST_PWM[] = {
+  30,
+  50,
+  75,
+  100,
+  150,
+  200
+};
+
+const int NUM_SPEED_POINTS =
+    sizeof(SPEED_TEST_PWM) / sizeof(SPEED_TEST_PWM[0]);
+
+// Time spent settling after reaching each PWM.
+const int SPEED_SETTLE_MS = 3000;
+
+// Time over which speed is measured.
+const int SPEED_MEASURE_MS = 2000;
+
+
+// ================================================================
+// GLOBAL ENCODER STATE
+// ================================================================
+
+volatile long encoderCount = 0;
+volatile uint8_t lastEncoderState = 0;
+
+
+// ================================================================
+// TEST STATE
+// ================================================================
+
+int currentPWM = 0;
+bool motorRunning = false;
+
+
+// ================================================================
+// QUADRATURE LOOKUP TABLE
+// ================================================================
+
+const int8_t QUAD_TABLE[16] = {
+     0, -1,  1,  0,
+     1,  0,  0, -1,
+    -1,  0,  0,  1,
+     0,  1, -1,  0
+};
+
+
+// ================================================================
+// ENCODER ISR
+// ================================================================
+
+void IRAM_ATTR encoderISR()
+{
+    uint8_t state =
+        (digitalRead(ENC_A_PIN) << 1) |
+         digitalRead(ENC_B_PIN);
+
+    uint8_t transition =
+        (lastEncoderState << 2) | state;
+
+    encoderCount +=
+        ENCODER_DIRECTION *
+        QUAD_TABLE[transition];
+
+    lastEncoderState = state;
+}
+
+
+// ================================================================
+// SAFE ENCODER ACCESS
+// ================================================================
+
+long readEncoderCount()
+{
+    noInterrupts();
+    long value = encoderCount;
+    interrupts();
+
+    return value;
+}
+
+
+void zeroEncoder()
+{
+    noInterrupts();
+
+    encoderCount = 0;
+
+    lastEncoderState =
+        (digitalRead(ENC_A_PIN) << 1) |
+         digitalRead(ENC_B_PIN);
+
+    interrupts();
+
+    Serial.println("Encoder zeroed.");
+}
+
+
+// ================================================================
+// MOTOR OUTPUT
+// ================================================================
+
+void setMotorPWM(int rpwm, int lpwm)
+{
+    rpwm = constrain(rpwm, 0, PWM_MAX);
+    lpwm = constrain(lpwm, 0, PWM_MAX);
+
+    // Never intentionally drive both sides.
+    ledcWrite(RPWM_CHANNEL, rpwm);
+    ledcWrite(LPWM_CHANNEL, lpwm);
+
+    if (rpwm > 0)
+        currentPWM = rpwm;
+    else
+        currentPWM = lpwm;
+
+    motorRunning = (rpwm > 0 || lpwm > 0);
+}
+
+
+void stopMotor()
+{
+    ledcWrite(RPWM_CHANNEL, 0);
+    ledcWrite(LPWM_CHANNEL, 0);
+
+    currentPWM = 0;
+    motorRunning = false;
+}
+
+
+// ================================================================
+// DIRECTION CONTROL
+// ================================================================
+
+void setLPWM(int pwm)
+{
+    // LPWM direction
+    setMotorPWM(0, pwm);
+}
+
+
+void setRPWM(int pwm)
+{
+    // RPWM direction
+    setMotorPWM(pwm, 0);
+}
+
+
+// ================================================================
+// RAMP HELPERS
+// ================================================================
+
+void rampToLPWM(int targetPWM)
+{
+    targetPWM =
+        constrain(targetPWM, 0, TEST_MAX_PWM);
+
+    if (currentPWM < targetPWM)
+    {
+        for (int pwm = currentPWM;
+             pwm <= targetPWM;
+             pwm++)
+        {
+            setLPWM(pwm);
+            delay(RAMP_STEP_DELAY_MS);
+        }
+    }
+    else
+    {
+        for (int pwm = currentPWM;
+             pwm >= targetPWM;
+             pwm--)
+        {
+            setLPWM(pwm);
+            delay(RAMP_STEP_DELAY_MS);
+        }
+    }
+}
+
+
+void rampToRPWM(int targetPWM)
+{
+    targetPWM =
+        constrain(targetPWM, 0, TEST_MAX_PWM);
+
+    if (currentPWM < targetPWM)
+    {
+        for (int pwm = currentPWM;
+             pwm <= targetPWM;
+             pwm++)
+        {
+            setRPWM(pwm);
+            delay(RAMP_STEP_DELAY_MS);
+        }
+    }
+    else
+    {
+        for (int pwm = currentPWM;
+             pwm >= targetPWM;
+             pwm--)
+        {
+            setRPWM(pwm);
+            delay(RAMP_STEP_DELAY_MS);
+        }
+    }
+}
+
+
+void rampDownAndStop()
+{
+    int startPWM = currentPWM;
+
+    for (int pwm = startPWM;
+         pwm >= 0;
+         pwm--)
+    {
+        if (currentDirectionIsLPWM)
+            setLPWM(pwm);
+        else
+            setRPWM(pwm);
+
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    stopMotor();
+}
+
+
+// Current direction used by rampDownAndStop()
+bool currentDirectionIsLPWM = true;
+
+
+// ================================================================
+// GENERAL RAMP FUNCTION
+// ================================================================
+
+void rampDirection(bool useLPWM, int targetPWM)
+{
+    currentDirectionIsLPWM = useLPWM;
+
+    targetPWM =
+        constrain(targetPWM, 0, TEST_MAX_PWM);
+
+    // If changing direction, come to zero first.
+    if (motorRunning)
+    {
+        if (useLPWM && !currentDirectionIsLPWM)
+        {
+            rampDownAndStop();
+            delay(DIRECTION_CHANGE_PAUSE_MS);
+        }
+        else if (!useLPWM && currentDirectionIsLPWM)
+        {
+            rampDownAndStop();
+            delay(DIRECTION_CHANGE_PAUSE_MS);
+        }
+    }
+
+    if (useLPWM)
+        rampToLPWM(targetPWM);
+    else
+        rampToRPWM(targetPWM);
+}
+
+
+// ================================================================
+// DISPLAY HELP
+// ================================================================
+
+void printHelp()
+{
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println(" SINGLE MOTOR TEST SUITE");
+    Serial.println("============================================");
+
+    Serial.println();
+    Serial.println("1 = Motor direction ramp test");
+    Serial.println("2 = Encoder direction test");
+    Serial.println("3 = Dead-band test");
+    Serial.println("4 = PWM vs encoder-speed test");
+
+    Serial.println();
+    Serial.println("S = immediate stop");
+    Serial.println("Z = zero encoder");
+    Serial.println("P = print encoder count");
+    Serial.println("? = help");
+
+    Serial.println();
+    Serial.println("All normal motor tests use ramped PWM.");
+    Serial.println("Dead-band test intentionally uses PWM steps.");
+    Serial.println();
+}
+
+
+// ================================================================
+// TEST 1
+// MOTOR DIRECTION TEST
+// ================================================================
+
+void testMotorDirections()
+{
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println("TEST 1 — MOTOR DIRECTION");
+    Serial.println("============================================");
+
+    Serial.println();
+    Serial.println("LPWM direction: ramping UP");
+    Serial.println();
+
+    currentDirectionIsLPWM = true;
+
+    for (int pwm = 0;
+         pwm <= TEST_MAX_PWM;
+         pwm++)
+    {
+        setLPWM(pwm);
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    Serial.println("LPWM at maximum.");
+    delay(DIRECTION_HOLD_MS);
+
+    Serial.println("LPWM ramping DOWN.");
+
+    for (int pwm = TEST_MAX_PWM;
+         pwm >= 0;
+         pwm--)
+    {
+        setLPWM(pwm);
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    stopMotor();
+
+    Serial.println("LPWM stopped.");
+    delay(DIRECTION_CHANGE_PAUSE_MS);
+
+
+    Serial.println();
+    Serial.println("RPWM direction: ramping UP");
+    Serial.println();
+
+    currentDirectionIsLPWM = false;
+
+    for (int pwm = 0;
+         pwm <= TEST_MAX_PWM;
+         pwm++)
+    {
+        setRPWM(pwm);
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    Serial.println("RPWM at maximum.");
+    delay(DIRECTION_HOLD_MS);
+
+    Serial.println("RPWM ramping DOWN.");
+
+    for (int pwm = TEST_MAX_PWM;
+         pwm >= 0;
+         pwm--)
+    {
+        setRPWM(pwm);
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    stopMotor();
+
+    Serial.println("RPWM stopped.");
+
+    Serial.println();
+    Serial.println("TEST 1 COMPLETE.");
+    Serial.println();
+}
+
+
+// ================================================================
+// TEST 2
+// ENCODER DIRECTION
+// ================================================================
+
+void testEncoderDirection()
+{
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println("TEST 2 — ENCODER DIRECTION");
+    Serial.println("============================================");
+
+    Serial.println();
+    Serial.println("Watch the physical motor direction.");
+    Serial.println("Also watch whether encoder counts increase");
+    Serial.println("or decrease.");
+    Serial.println();
+
+
+    // ------------------------------------------------------------
+    // LPWM
+    // ------------------------------------------------------------
+
+    zeroEncoder();
+
+    Serial.println("LPWM DIRECTION");
+    Serial.println("Starting ramp...");
+
+    currentDirectionIsLPWM = true;
+
+    for (int pwm = 0;
+         pwm <= TEST_MAX_PWM;
+         pwm++)
+    {
+        setLPWM(pwm);
+
+        if (pwm % 20 == 0)
+        {
+            Serial.print("PWM=");
+            Serial.print(pwm);
+
+            Serial.print(" | Count=");
+            Serial.println(readEncoderCount());
+        }
+
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    Serial.println("LPWM running.");
+    delay(2000);
+
+    long lpwmCount = readEncoderCount();
+
+    Serial.print("FINAL LPWM COUNT = ");
+    Serial.println(lpwmCount);
+
+    // Ramp down
+    for (int pwm = TEST_MAX_PWM;
+         pwm >= 0;
+         pwm--)
+    {
+        setLPWM(pwm);
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    stopMotor();
+
+    delay(DIRECTION_CHANGE_PAUSE_MS);
+
+
+    // ------------------------------------------------------------
+    // RPWM
+    // ------------------------------------------------------------
+
+    zeroEncoder();
+
+    Serial.println();
+    Serial.println("RPWM DIRECTION");
+    Serial.println("Starting ramp...");
+
+    currentDirectionIsLPWM = false;
+
+    for (int pwm = 0;
+         pwm <= TEST_MAX_PWM;
+         pwm++)
+    {
+        setRPWM(pwm);
+
+        if (pwm % 20 == 0)
+        {
+            Serial.print("PWM=");
+            Serial.print(pwm);
+
+            Serial.print(" | Count=");
+            Serial.println(readEncoderCount());
+        }
+
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    Serial.println("RPWM running.");
+    delay(2000);
+
+    long rpwmCount = readEncoderCount();
+
+    Serial.print("FINAL RPWM COUNT = ");
+    Serial.println(rpwmCount);
+
+    // Ramp down
+    for (int pwm = TEST_MAX_PWM;
+         pwm >= 0;
+         pwm--)
+    {
+        setRPWM(pwm);
+        delay(RAMP_STEP_DELAY_MS);
+    }
+
+    stopMotor();
+
+
+    // ------------------------------------------------------------
+    // RESULT
+    // ------------------------------------------------------------
+
+    Serial.println();
+    Serial.println("--------------------------------------------");
+
+    if ((lpwmCount > 0 && rpwmCount < 0) ||
+        (lpwmCount < 0 && rpwmCount > 0))
+    {
+        Serial.println(
+            "PASS: Encoder signs are opposite."
+        );
+    }
+    else
+    {
+        Serial.println(
+            "WARNING: Encoder signs are not opposite."
+        );
+    }
+
+    Serial.println("--------------------------------------------");
+    Serial.println();
+}
+
+
+// ================================================================
+// TEST 3
+// DEAD BAND / STARTUP PWM
+// ================================================================
+//
+// Important:
+// This deliberately does NOT ramp normally.
+//
+// We need to determine the smallest PWM at which the motor
+// actually starts generating encoder transitions.
+//
+// ================================================================
+
+void testDeadband()
+{
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println("TEST 3 — DEAD BAND / STARTUP PWM");
+    Serial.println("============================================");
+
+    Serial.println();
+    Serial.println("LPWM direction.");
+    Serial.println("PWM will increase one step at a time.");
+    Serial.println("First real encoder movement stops the test.");
+    Serial.println();
+
+    zeroEncoder();
+
+    long previousCount = 0;
+
+    for (int pwm = 0;
+         pwm <= DEADBAND_MAX_PWM;
+         pwm += DEADBAND_PWM_STEP)
+    {
+        setLPWM(pwm);
+
+        delay(DEADBAND_STEP_DELAY_MS);
+
+        long count = readEncoderCount();
+
+        long delta =
+            count - previousCount;
+
+        Serial.print("PWM=");
+        Serial.print(pwm);
+
+        Serial.print(" | Count=");
+        Serial.print(count);
+
+        Serial.print(" | Delta=");
+        Serial.println(delta);
+
+        if (labs(delta) >= DEADBAND_MIN_COUNTS)
+        {
+            stopMotor();
+
+            Serial.println();
+            Serial.println("--------------------------------------------");
+            Serial.print("STARTUP / DEAD-BAND PWM ≈ ");
+            Serial.println(pwm);
+            Serial.print("Encoder movement detected = ");
+            Serial.println(delta);
+            Serial.println("--------------------------------------------");
+
+            Serial.println();
+            Serial.println("TEST 3 COMPLETE.");
+            Serial.println();
+
+            return;
+        }
+
+        previousCount = count;
+    }
+
+    stopMotor();
+
+    Serial.println();
+    Serial.println("No encoder movement detected up to");
+    Serial.print("PWM=");
+    Serial.println(DEADBAND_MAX_PWM);
+
+    Serial.println();
+}
+
+
+// ================================================================
+// SPEED MEASUREMENT HELPER
+// ================================================================
+
+double measureSpeedRadS(int measurementMs)
+{
+    long startCount = readEncoderCount();
+    unsigned long startTime = millis();
+
+    delay(measurementMs);
+
+    long endCount = readEncoderCount();
+    unsigned long endTime = millis();
+
+    long deltaCount =
+        endCount - startCount;
+
+    double elapsedSeconds =
+        (endTime - startTime) / 1000.0;
+
+    if (COUNTS_PER_REV <= 0.0)
+        return 0.0;
+
+    double deltaRadians =
+        deltaCount *
+        (2.0 * PI / COUNTS_PER_REV);
+
+    return deltaRadians / elapsedSeconds;
+}
+
+
+// ================================================================
+// TEST 4
+// PWM vs ENCODER SPEED
+// ================================================================
+//
+// Each PWM point is reached using a ramp.
+// Then the motor settles.
+// Then actual encoder speed is measured.
+//
+// LPWM direction is used so the data is directly comparable
+// with your previous Motor B characterization.
+//
+// ================================================================
+
+void testPWMSpeed()
+{
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println("TEST 4 — PWM vs ENCODER SPEED");
+    Serial.println("============================================");
+
+    if (COUNTS_PER_REV <= 0.0)
+    {
+        Serial.println(
+            "ERROR: COUNTS_PER_REV must be set first."
+        );
+        return;
+    }
+
+    Serial.println();
+    Serial.print("Using CPR = ");
+    Serial.println(COUNTS_PER_REV);
+
+    Serial.println();
+    Serial.println(
+        "Direction = LPWM"
+    );
+
+    Serial.println();
+    Serial.println(
+        "PWM    Speed(rad/s)    RPM"
+    );
+
+    Serial.println(
+        "--------------------------------------------"
+    );
+
+
+    // Always start from zero
+    stopMotor();
+
+    delay(DIRECTION_CHANGE_PAUSE_MS);
+
+
+    for (int i = 0;
+         i < NUM_SPEED_POINTS;
+         i++)
+    {
+        int targetPWM =
+            SPEED_TEST_PWM[i];
+
+        // --------------------------------------------------------
+        // RAMP TO TARGET
+        // --------------------------------------------------------
+
+        currentDirectionIsLPWM = true;
+
+        int startingPWM = currentPWM;
+
+        if (startingPWM < targetPWM)
+        {
+            for (int pwm = startingPWM;
+                 pwm <= targetPWM;
+                 pwm++)
+            {
+                setLPWM(pwm);
+                delay(RAMP_STEP_DELAY_MS);
+            }
+        }
+        else
+        {
+            for (int pwm = startingPWM;
+                 pwm >= targetPWM;
+                 pwm--)
+            {
+                setLPWM(pwm);
+                delay(RAMP_STEP_DELAY_MS);
+            }
+        }
+
+
+        // --------------------------------------------------------
+        // SETTLE
+        // --------------------------------------------------------
+
+        delay(SPEED_SETTLE_MS);
+
+
+        // --------------------------------------------------------
+        // MEASURE
+        // --------------------------------------------------------
+
+        double speedRadS =
+            measureSpeedRadS(SPEED_MEASURE_MS);
+
+        double rpm =
+            speedRadS *
+            60.0 /
+            (2.0 * PI);
+
+
+        Serial.print(targetPWM);
+        Serial.print("        ");
+
+        Serial.print(speedRadS, 3);
+        Serial.print("          ");
+
+        Serial.println(rpm, 2);
+    }
+
+
+    // ------------------------------------------------------------
+    // STOP
+    // ------------------------------------------------------------
+
+    stopMotor();
+
+    Serial.println();
+    Serial.println(
+        "--------------------------------------------"
+    );
+
+    Serial.println(
+        "TEST 4 COMPLETE."
+    );
+
+    Serial.println();
+}
+
+
+// ================================================================
+// SETUP
+// ================================================================
+
+void setup()
+{
+    Serial.begin(115200);
+
+    delay(500);
+
+
+    // ------------------------------------------------------------
+    // MOTOR
+    // ------------------------------------------------------------
+
+    pinMode(RPWM_PIN, OUTPUT);
+    pinMode(LPWM_PIN, OUTPUT);
+
+    // ------------------------------------------------------------
+    // ENCODER
+    // ------------------------------------------------------------
+
+    pinMode(
+        ENC_A_PIN,
+        INPUT_PULLUP
+    );
+
+    pinMode(
+        ENC_B_PIN,
+        INPUT_PULLUP
+    );
+
+
+    lastEncoderState =
+        (digitalRead(ENC_A_PIN) << 1) |
+         digitalRead(ENC_B_PIN);
+
+
+    attachInterrupt(
+        digitalPinToInterrupt(ENC_A_PIN),
+        encoderISR,
+        CHANGE
+    );
+
+    attachInterrupt(
+        digitalPinToInterrupt(ENC_B_PIN),
+        encoderISR,
+        CHANGE
+    );
+
+
+    // ------------------------------------------------------------
+    // PWM
+    // ------------------------------------------------------------
+
+    ledcSetup(
+        RPWM_CHANNEL,
+        PWM_FREQ,
+        PWM_RES
+    );
+
+    ledcSetup(
+        LPWM_CHANNEL,
+        PWM_FREQ,
+        PWM_RES
+    );
+
+    ledcAttachPin(
+        RPWM_PIN,
+        RPWM_CHANNEL
+    );
+
+    ledcAttachPin(
+        LPWM_PIN,
+        LPWM_CHANNEL
+    );
+
+
+    stopMotor();
+
+
+    // ------------------------------------------------------------
+    // STARTUP MESSAGE
+    // ------------------------------------------------------------
+
+    Serial.println();
+    Serial.println("============================================");
+    Serial.println(" SINGLE-MOTOR TEST SUITE READY");
+    Serial.println("============================================");
+
+    Serial.println();
+
+    Serial.print("RPWM pin = ");
+    Serial.println(RPWM_PIN);
+
+    Serial.print("LPWM pin = ");
+    Serial.println(LPWM_PIN);
+
+    Serial.print("Encoder A = ");
+    Serial.println(ENC_A_PIN);
+
+    Serial.print("Encoder B = ");
+    Serial.println(ENC_B_PIN);
+
+    Serial.print("CPR = ");
+    Serial.println(COUNTS_PER_REV);
+
+    Serial.println();
+
+    printHelp();
+}
+
+
+// ================================================================
+// MAIN LOOP
+// ================================================================
+
+void loop()
+{
+    if (!Serial.available())
+        return;
+
+
+    String command =
+        Serial.readStringUntil('\n');
+
+    command.trim();
+
+
+    // ============================================================
+    // TEST SELECTION
+    // ============================================================
+
+    if (command == "1")
+    {
+        stopMotor();
+        delay(200);
+
+        testMotorDirections();
+    }
+
+    else if (command == "2")
+    {
+        stopMotor();
+        delay(200);
+
+        testEncoderDirection();
+    }
+
+    else if (command == "3")
+    {
+        stopMotor();
+        delay(200);
+
+        testDeadband();
+    }
+
+    else if (command == "4")
+    {
+        stopMotor();
+        delay(200);
+
+        testPWMSpeed();
+    }
+
+
+    // ============================================================
+    // GENERAL COMMANDS
+    // ============================================================
+
+    else if (command.equalsIgnoreCase("S"))
+    {
+        /*
+          Immediate stop intentionally does NOT ramp.
+
+          This is an emergency/test-abort command.
+        */
+
+        stopMotor();
+
+        Serial.println(
+            "MOTOR STOPPED IMMEDIATELY"
+        );
+    }
+
+    else if (command.equalsIgnoreCase("Z"))
+    {
+        zeroEncoder();
+    }
+
+    else if (command.equalsIgnoreCase("P"))
+    {
+        Serial.print(
+            "Encoder count = "
+        );
+
+        Serial.println(
+            readEncoderCount()
+        );
+    }
+
+    else if (command == "?")
+    {
+        printHelp();
+    }
+
+    else
+    {
+        Serial.println(
+            "Unknown command. Send ? for help."
+        );
+    }
+}
