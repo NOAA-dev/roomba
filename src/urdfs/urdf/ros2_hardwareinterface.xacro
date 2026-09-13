@@ -1,21 +1,43 @@
 <?xml version="1.0"?>
 <robot name="roomba" xmlns:xacro="https://www.ros.org/wiki/xacro">
 
-    <ros2_control name="GazeboSystem" type="system">
-        <hardware>
-            <plugin>gz_ros2_control/GazeboSimSystem</plugin>
-        </hardware>
-        
-        <joint name="base_right_wheel_joint">
-            <command_interface name="velocity"/>
-            <state_interface name="velocity"/>
-            <state_interface name="position"/>
-        </joint>
-        <joint name="base_left_wheel_joint">
-            <command_interface name="velocity"/>
-            <state_interface name="velocity"/>
-            <state_interface name="position"/>
-        </joint>
-    </ros2_control>
+    <!-- use_sim=true: gz_ros2_control/GazeboSimSystem (unchanged sim behavior, default).
+         use_sim=false: roomba_hardware/ESP32SystemInterface, talking to the real
+         robot's ESP32 over serial_port @ baud_rate. Same two joints/interfaces
+         either way, so the diff_drive_controller/simple_velocity_controller +
+         planner stack above ros2_control doesn't need to know which one is active. -->
+    <xacro:macro name="roomba_ros2_control" params="use_sim serial_port baud_rate">
+        <ros2_control name="RoombaSystem" type="system">
+
+            <xacro:if value="${use_sim}">
+                <hardware>
+                    <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+                </hardware>
+            </xacro:if>
+            <xacro:unless value="${use_sim}">
+                <hardware>
+                    <plugin>roomba_hardware/ESP32SystemInterface</plugin>
+                    <param name="serial_port">${serial_port}</param>
+                    <param name="baud_rate">${baud_rate}</param>
+                    <!-- Unverified Motor A/B to left/right mapping from the firmware
+                         side: flip these two on first bring-up if the robot spins in
+                         place or drives backwards, no rebuild needed. -->
+                    <param name="left_motor_channel">A</param>
+                    <param name="right_motor_channel">B</param>
+                </hardware>
+            </xacro:unless>
+
+            <joint name="base_right_wheel_joint">
+                <command_interface name="velocity"/>
+                <state_interface name="velocity"/>
+                <state_interface name="position"/>
+            </joint>
+            <joint name="base_left_wheel_joint">
+                <command_interface name="velocity"/>
+                <state_interface name="velocity"/>
+                <state_interface name="position"/>
+            </joint>
+        </ros2_control>
+    </xacro:macro>
 
 </robot>

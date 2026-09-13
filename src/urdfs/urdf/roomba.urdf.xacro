@@ -2,6 +2,13 @@
 <robot name="roomba" xmlns:xacro="https://www.ros.org/wiki/xacro">
 
     <xacro:arg name="controllers_config_path" default="" />
+    <!-- use_sim=true (default) keeps existing Gazebo behavior unchanged.
+         use_sim=false switches ros2_hardwareinterface.xacro to the real
+         ESP32 hardware plugin (see roomba_hardware package); serial_port/
+         baud_rate are only used in that case. -->
+    <xacro:arg name="use_sim" default="true" />
+    <xacro:arg name="serial_port" default="/dev/ttyUSB0" />
+    <xacro:arg name="baud_rate" default="115200" />
 
     <xacro:include filename="materials.xacro" />
     <xacro:include filename="inertia_descriptions.xacro" />
@@ -10,6 +17,11 @@
     <xacro:include filename="imu_sensor.xacro" />
     <xacro:include filename="gazebo_plugin.xacro" />
     <xacro:include filename="ros2_hardwareinterface.xacro" />
+
+    <xacro:roomba_ros2_control
+        use_sim="$(arg use_sim)"
+        serial_port="$(arg serial_port)"
+        baud_rate="$(arg baud_rate)" />
 
     <xacro:property name="roomba_radius" value="0.2" />
     <xacro:property name="roomba_height" value="0.1" />

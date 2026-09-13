@@ -1,0 +1,13 @@
+<library path="roomba_hardware">
+  <class name="roomba_hardware/ESP32SystemInterface"
+         type="roomba_hardware::ESP32SystemInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Real-hardware ros2_control SystemInterface for the roomba diff-drive base.
+      Talks to an ESP32 over a serial link (V1/V2 velocity commands, S stop, Z zero,
+      POS/VEL telemetry) to drive base_left_wheel_joint / base_right_wheel_joint.
+      Velocity command interface, position + velocity state interfaces, one joint
+      per wheel -- mirrors gz_ros2_control/GazeboSimSystem's interface shape.
+    </description>
+  </class>
+</library>
