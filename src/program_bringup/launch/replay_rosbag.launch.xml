@@ -1,0 +1,72 @@
+<launch>
+
+    <arg name="gui" default="true"/>
+
+    <!-- 1. Robot TF publisher -->
+    <let name="robot_description_content"
+         value="$(command 'xacro $(find-pkg-share urdfs)/urdf/roomba.urdf.xacro
+                  use_sim:=true
+                  controllers_config_path:=$(find-pkg-share program_bringup)/config/controllers.yaml')"/>
+
+    <node pkg="robot_state_publisher"
+          exec="robot_state_publisher"
+          output="screen">
+
+        <param name="robot_description"
+               value="$(var robot_description_content)"/>
+
+        <param name="publish_fixed_joints" value="true"/>
+        <param name="use_sim_time" value="true"/>
+
+    </node>
+
+
+    <!-- 2. Your relay.py node -->
+
+
+    <node pkg="helpers"
+          exec="cmd_relay"
+          name="relay"
+          output="screen">
+
+        <param name="use_sim_time" value="true"/>
+
+    </node>
+
+
+    <!-- 3. EKF -->
+    <node pkg="robot_localization"
+          exec="ekf_node"
+          name="ekf_filter_node"
+          output="screen">
+
+        <param from="$(find-pkg-share program_bringup)/config/ekf.yaml"/>
+        <param name="use_sim_time" value="true"/>
+
+    </node>
+
+
+    <!-- 4. SLAM -->
+    <include file="$(find-pkg-share program_bringup)/launch/slam_plus_lifecycle.launch.xml">
+
+        <arg name="use_sim_time" value="true"/>
+
+    </include>
+
+
+    <!-- 5. RViz -->
+    <node pkg="rviz2"
+          exec="rviz2"
+          args="-d $(find-pkg-share urdfs)/rviz/default.rviz"
+          if="$(var gui)"/>
+
+    <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <node pkg="helpers" exec="data_logger" name="data_logger_node" output="screen">
+        <param name="use_sim_time" value="true"/>
+        <param name="sim" value="true"/>
+    </node>
+
+</launch>

@@ -35,7 +35,7 @@ class MAPValidatorNode(Node):
         self.bad_map_ = Validatedmap()
         self.bad_map_counter = 0
 
-        self.enabled = False
+        self.enabled = True
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
