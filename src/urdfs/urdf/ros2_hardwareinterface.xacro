@@ -19,8 +19,8 @@
                     <plugin>roomba_hardware/ESP32SystemInterface</plugin>
                     <param name="serial_port">${serial_port}</param>
                     <param name="baud_rate">${baud_rate}</param>
-                    <param name="left_motor_channel">A</param>
-                    <param name="right_motor_channel">B</param>
+                    <param name="left_motor_channel">B</param>
+                    <param name="right_motor_channel">A</param>
                 </hardware>
             </xacro:unless>
 

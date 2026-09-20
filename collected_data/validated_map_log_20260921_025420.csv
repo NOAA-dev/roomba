@@ -1,0 +1,1 @@
+wall_time,ros_time_sec,source,counter,map_score,valid,fragmented,fragments,is_dominant,reachable_ratio,drift_detected,drift_score,drift_distance,map_width,map_height,map_resolution,odom_time_sec,odom_x,odom_y,odom_yaw,odom_lin_vel_x,odom_lin_vel_y,odom_ang_vel_z
