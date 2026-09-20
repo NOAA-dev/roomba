@@ -27,12 +27,15 @@ setup).
 |-----------------------|----------------|-----------------------------------------------------------------------|
 | `serial_port`          | *(required)*   | e.g. `/dev/ttyUSB0`                                                   |
 | `baud_rate`             | `115200`       | must match the ESP32 firmware                                         |
-| `left_motor_channel`    | `A`            | which ESP32 motor (`A`/`B`) is `base_left_wheel_joint`                |
-| `right_motor_channel`   | `B`            | which ESP32 motor (`A`/`B`) is `base_right_wheel_joint`                |
+| `left_motor_channel`    | `B`            | which ESP32 motor (`A`/`B`) is `base_left_wheel_joint`                |
+| `right_motor_channel`   | `A`            | which ESP32 motor (`A`/`B`) is `base_right_wheel_joint`                |
 
-**The Motor A/B <-> left/right mapping is an unverified guess from the
-firmware side.** If the robot spins in place or drives backwards on first
-test, flip `left_motor_channel`/`right_motor_channel` in
+**Motor A/B <-> left/right per `dual_motor_controller_FINAL`'s documented
+physical rewire**: Motor A (RPWM=32/LPWM=33) is now the RIGHT wheel, Motor B
+(RPWM=25/LPWM=26) is now the LEFT wheel -- the opposite of the original
+mapping. The firmware's own safety note says this combination hasn't been
+tested on real hardware yet, so if the robot spins in place or drives
+backwards on first test, flip `left_motor_channel`/`right_motor_channel` in
 `ros2_hardwareinterface.xacro` -- it's a one-line xacro change, not a
 rebuild.
 
