@@ -38,9 +38,9 @@ class AStarNode(Node):
         path_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.computing = False
 
-        self.declare_parameter("wheelseperation", 0.23)
-        self.declare_parameter("wheelradius", 0.05)
-        self.declare_parameter("robotradius", 0.2)
+        self.declare_parameter("wheelseperation", 0.333)
+        self.declare_parameter("wheelradius", 0.035)
+        self.declare_parameter("robotradius", 0.1925)
 
         # bot parameters
         self.L_ = self.get_parameter("wheelseperation").value

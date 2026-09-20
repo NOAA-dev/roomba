@@ -15,8 +15,8 @@ class CMDRelayNode(Node):
         super().__init__("cmd_relay") 
 
         self.get_logger().info("cmd_relay node has been started")
-        self.declare_parameter("wheelseperation", 0.23)
-        self.declare_parameter("wheelradius", 0.05)
+        self.declare_parameter("wheelseperation", 0.333)
+        self.declare_parameter("wheelradius", 0.035)
 
         self.L_ = self.get_parameter("wheelseperation").value
         self.R_ = self.get_parameter("wheelradius").value
