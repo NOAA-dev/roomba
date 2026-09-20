@@ -73,18 +73,18 @@
     <link name="caster_wheel">
         <visual>
             <geometry>
-                <sphere radius="0.025"/>
+                <sphere radius="0.01755"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <material name="grey"/>
         </visual>
         <collision>
             <geometry>
-                <sphere radius="0.025"/>
+                <sphere radius="0.01755"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </collision>
-        <xacro:solid_sphere_inertia Mass="0.5" r="0.025" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
+        <xacro:solid_sphere_inertia Mass="0.5" r="0.01755" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
     </link>
 
     <joint name="base_right_wheel_joint" type="continuous">
@@ -142,7 +142,7 @@
     <gazebo>
         <self_collide>false</self_collide>
     </gazebo>
-    
+
     <gazebo>
         <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
             <parameters>$(arg controllers_config_path)</parameters>
