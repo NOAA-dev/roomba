@@ -140,6 +140,10 @@
     </gazebo>
 
     <gazebo>
+        <self_collide>false</self_collide>
+    </gazebo>
+    
+    <gazebo>
         <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
             <parameters>$(arg controllers_config_path)</parameters>
         </plugin>
