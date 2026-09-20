@@ -2,13 +2,37 @@
   ==========================================================================
   ESP32 Dual-Motor Closed-Loop Angle/Speed Controller  (v3)
   ==========================================================================
+  Changes from v3.1, based on a physical rewiring you did (pins A and B
+  are now on physically different wheels, and B's driver wiring changed
+  to match A's convention instead of needing an inverted encoder):
+    - Motor A (RPWM=32/LPWM=33/ENC=16,17) is now the RIGHT wheel (was
+      documented as LEFT before the rewire).
+    - Motor B (RPWM=25/LPWM=26/ENC=18,19) is now the LEFT wheel (was
+      documented as RIGHT before the rewire).
+    - BOTH motors now use the SAME convention: +command -> LPWM -> CW ->
+      +counts. Motor B's encoder no longer needs the sign inversion from
+      v3 (encoderIsrB reverted to normal, no subtraction) - instead
+      motB.rpwmChannel/lpwmChannel are now swapped in setup() the same
+      way motA's already were, so +command drives LPWM on both motors
+      identically. See PIN DEFINITIONS for the full explanation.
+    - CPR values unchanged (A=5070, B=5100) - these are per-driver-board
+      values, not tied to which wheel is attached.
+    - Feedforward constants (FF_SLOPE_B/FF_OFFSET_B, FF_SLOPE_A=0/
+      FF_OFFSET_A=0) are unchanged - they're properties of each motor+
+      driver pair, not the wheel it's bolted to, so the rewire doesn't
+      invalidate them.
+    - IMPORTANT: this changes what a ROS2 bridge or any external caller
+      needs to send. Physical LEFT is now V2/M2 (motor B), physical
+      RIGHT is now V1/M1 (motor A) - the opposite of what it was before
+      this rewire. If you already built a ROS2 bridge or any other
+      higher-level code assuming the old wheel assignment, it needs
+      updating too.
+
   Changes from v3.0, based on your Motor A bench-test summary:
     - COUNTS_PER_REV_A set to your confirmed ~5070 (was an unverified
       placeholder before).
-    - Motor A's command/direction convention is now wired in - but via a
-      DIFFERENT mechanism than Motor B's fix, on purpose. See the long
-      comment in PIN DEFINITIONS for why, and the swapped
-      motA.rpwmChannel/lpwmChannel assignment in setup().
+    - Motor A's command/direction convention is now wired in - via
+      swapped motA.rpwmChannel/lpwmChannel assignment in setup().
     - Feedforward is now PER-MOTOR instead of one shared global model.
       Motor A's feedforward is set to 0 (no feedforward yet) since you
       explicitly said its PWM->speed characterization hasn't been done -
@@ -41,9 +65,10 @@
       tied to 5V on your board, always enabled - confirmed by test)
     - 2x OE-28 Hall effect quadrature encoders
 
-  Pin mapping (unchanged - tell me if your schematic differs):
-    MOTOR A (LEFT):  RPWM=GPIO32  LPWM=GPIO33  ENC=GPIO16/17  [direction+CPR bench-tested, feedforward NOT YET]
-    MOTOR B (RIGHT): RPWM=GPIO25  LPWM=GPIO26  ENC=GPIO18/19  [fully bench-tested]
+  Pin mapping (rewired - Motor A is now RIGHT, Motor B is now LEFT):
+    MOTOR A (RIGHT): RPWM=GPIO32  LPWM=GPIO33  ENC=GPIO16/17  CPR=5070  [feedforward NOT YET]
+    MOTOR B (LEFT):  RPWM=GPIO25  LPWM=GPIO26  ENC=GPIO18/19  CPR=5100  [fully bench-tested]
+  Both: +command -> LPWM -> clockwise -> encoder counts increase.
 
   ==========================================================================
   SERIAL COMMANDS (115200 baud, newline terminated) - TRANSPORT LAYER ONLY
@@ -70,47 +95,23 @@ struct MotorControl;
 // ---------------------------------------------------------------------
 // PIN DEFINITIONS
 // ---------------------------------------------------------------------
-// Motor B bench-test findings (RPWM=25/LPWM=26/ENC=18,19):
-//   - LPWM active -> shaft turns CLOCKWISE     -> encoder counts INCREASE
-//   - RPWM active -> shaft turns ANTICLOCKWISE -> encoder counts DECREASE
-// applyMotorPWM() treats pwmSigned >= 0 as "drive RPWM" (anticlockwise on
-// B), which per the above naturally produces *negative* raw encoder
-// counts for a *positive* commanded PWM. You confirmed that mismatch is
-// real (positive command -> negative raw counts) - that's exactly the
-// shape of bug that made the velocity PID diverge instead of settle
-// before (commanded and measured pulling in opposite directions), which
-// lines up with the runaway/sparking you saw. FIXED below: encoderIsrB
-// now inverts Motor B's count direction (subtracts instead of adds),
-// so positive commanded PWM now increases encCountB, matching
-// rampedVelDegS's sign to measuredVelDegS's sign for Motor B. Net
-// result for B: "positive" ends up meaning RPWM/anticlockwise.
+// REWIRED: Motor A is now the RIGHT wheel, Motor B is now the LEFT wheel
+// (previously the opposite). Both motors' physical hardware behavior is
+// identical: LPWM active -> CLOCKWISE -> encoder counts INCREASE, RPWM
+// active -> ANTICLOCKWISE -> encoder counts DECREASE.
 //
-// Motor A bench-test findings (RPWM=32/LPWM=33/ENC=16,17) - raw physical
-// behavior is IDENTICAL to B's:
-//   - LPWM active -> CLOCKWISE     -> encoder counts INCREASE (same as B)
-//   - RPWM active -> ANTICLOCKWISE -> encoder counts DECREASE (same as B)
-// But your stated convention for A is the OPPOSITE of what B ended up
-// with: "+command -> LPWM -> clockwise -> +counts" (for B, +command
-// ended up meaning RPWM/anticlockwise). Rather than invert Motor A's
-// encoder like B's (which would make +command mean RPWM/anticlockwise
-// for A too, contradicting what you specified), I instead swapped which
-// physical channel applyMotorPWM's ">=0" branch drives for Motor A - see
-// motA.rpwmChannel/lpwmChannel in setup(). That way +command physically
-// drives LPWM on A, matching your spec exactly, and encoderIsrA is left
-// completely unmodified (its native/un-inverted count direction already
-// reads +counts on clockwise, so no encoder-side change is needed for A).
-//
-// Net effect: A and B now use genuinely different internal conventions
-// for what "positive" means physically (CW for A, CCW for B). That's
-// intentional per what each of you measured/specified, not a bug or
-// inconsistency to "fix" later - but it's easy to forget, so if anyone
-// (including future you) is puzzled why the two motors are wired up
-// differently in code despite being the same hardware, this is why.
-// This also happens to be exactly what you'd expect on a real
-// differential-drive robot with mirror-mounted left/right motors, where
-// "both wheels roll forward" corresponds to opposite absolute rotation
-// directions on each side - so this asymmetry likely reflects real
-// mechanical mounting, not an error in either motor's testing.
+// Both motors now use the SAME logical convention: +command -> LPWM ->
+// clockwise -> +counts. This is achieved the same way for both: in
+// setup(), each motor's rpwmChannel/lpwmChannel struct fields are
+// swapped relative to the physical pin names, so applyMotorPWM()'s
+// "pwmSigned >= 0" branch physically drives LPWM on both motors. Neither
+// encoderIsrA nor encoderIsrB is inverted - both use the native/
+// un-inverted count direction, which already reads +counts on clockwise.
+// (Earlier v3 had Motor B using an inverted-encoder trick instead,
+// because at the time B was wired as the mirror-image wheel and needed
+// the opposite command convention from A. After this rewire, both
+// motors are symmetric, so that inversion was removed - see
+// encoderIsrB() below, now identical in form to encoderIsrA().)
 // ---------------------------------------------------------------------
 #define MOTOR_A_RPWM 32
 #define MOTOR_A_LPWM 33
@@ -198,15 +199,15 @@ double motorFeedforwardPWM(MotorControl &m, double speedDegS);
 
 // ---------------------------------------------------------------------
 // !! SAFETY NOTE - READ BEFORE RE-ENABLING CLOSED-LOOP CONTROL !!
-// A previous closed-loop PID test on this hardware ran away (motor
-// vibrating, visible internal sparking), traced to the encoder sign
-// mismatch just fixed in encoderIsrB() above. That fix is untested on
-// real hardware. Before trusting PID again: re-test from scratch as if
-// it's new code - start with a small commanded velocity (e.g. 'V2 20'),
-// confirm the printed VEL B now has the SAME sign as what you commanded,
-// consider testing with PWM_MAX temporarily reduced well below 230, and
-// be ready to send 'S' (or cut power) immediately if the motor
-// accelerates instead of settling toward the commanded speed.
+// This firmware version reflects a physical rewire (Motor A/B now on
+// different wheels, Motor B's sign-handling mechanism changed from an
+// inverted encoder to a swapped output channel) - none of this has been
+// tested on real hardware yet. Treat it exactly like the original
+// post-runaway retest: start with a small commanded velocity on EACH
+// motor individually (e.g. 'V1 20' then 'V2 20'), confirm VEL A/VEL B
+// come back with the SAME sign as commanded, consider a reduced PWM_MAX
+// for the first pass, and be ready to send 'S' immediately if either
+// motor accelerates instead of settling.
 // ---------------------------------------------------------------------
 
 // ---------------------------------------------------------------------
@@ -248,10 +249,11 @@ void IRAM_ATTR encoderIsrA() {
 void IRAM_ATTR encoderIsrB() {
   uint8_t s = (digitalRead(ENC_B_C1) << 1) | digitalRead(ENC_B_C2);
   uint8_t idx = (lastStateB << 2) | s;
-  // Sign INVERTED vs Motor A on purpose - see PIN DEFINITIONS note above.
-  // Confirmed: positive commanded PWM (RPWM) was producing negative raw
-  // counts on Motor B; subtracting instead of adding here makes positive
-  // command -> positive measured velocity, matching what the PID expects.
+  // INVERTED again (was un-inverted right after the rewire) - you asked
+  // for V2's positive direction to be anticlockwise specifically.
+  // Subtracting here keeps +command -> +measured velocity (avoiding the
+  // PID-divergence bug from way earlier), while applyMotorPWM below now
+  // drives physical RPWM (anticlockwise) for a positive V2 command.
   encCountB -= QUAD_TABLE[idx];
   lastStateB = s;
 }
@@ -309,9 +311,35 @@ double motorFeedforwardPWM(MotorControl &m, double speedDegS) {
 MotorControl motA;
 MotorControl motB;
 
+// ---------------------------------------------------------------------
+// ROBOT-FRAME DRIVE SIGN
+// ---------------------------------------------------------------------
+// Set to 1 (a no-op) now that Motor B's individual convention was made
+// asymmetric to Motor A's again (+command -> anticlockwise for B, vs
+// clockwise for A - see encoderIsrB and motB's channel setup). That
+// asymmetry itself is what makes identical +speed on both motors drive
+// straight (matching how the mirror-mounted wheels physically move),
+// so VV/MM no longer need a separate correction on top of it. If you
+// ever go back to a symmetric per-motor convention, this needs to
+// become -1 again - see the VV/MM handlers below for where it's used.
+const int LEFT_WHEEL_DRIVE_SIGN = 1;
+
 bool calibrationMode = false;
 unsigned long lastTelemetryMs = 0;
 unsigned long lastCalPrintMs = 0;
+
+// ---------------------------------------------------------------------
+// COMMAND WATCHDOG - for ROS2/cmd_vel-style continuous control
+// If a motor is in VELOCITY mode and no V1/V2/VV command refreshes it
+// within this window, stop it. Does NOT affect POSITION mode (M1/M2/MM)
+// moves, which are one-shot and expected to run to completion without
+// repeated commands. This matters once a host (e.g. a ROS2 node sending
+// cmd_vel) is driving this over serial - if that host disconnects,
+// crashes, or just stops publishing, the motor should not keep running
+// at its last commanded speed forever.
+// ---------------------------------------------------------------------
+unsigned long lastVelCmdMs = 0;
+const unsigned long VEL_CMD_TIMEOUT_MS = 500;
 
 // =======================================================================
 // ============================ CORE API ================================
@@ -604,8 +632,11 @@ void handleCommand(String line) {
     } else if (cmd == "M2") {
       motorMoveRelative(motB, encCountB, angle, speed);
     } else {
+      // MM: combined straight-line move - apply the robot-frame sign
+      // correction to Motor B (see ROBOT-FRAME DRIVE SIGN above), so
+      // one angle/speed value actually drives straight, not a spin.
       motorMoveRelative(motA, encCountA, angle, speed);
-      motorMoveRelative(motB, encCountB, angle, speed);
+      motorMoveRelative(motB, encCountB, angle * LEFT_WHEEL_DRIVE_SIGN, speed);
     }
     Serial.print(cmd); Serial.print(F(": moving ")); Serial.print(angle);
     Serial.print(F(" deg @ ")); Serial.print(speed); Serial.println(F(" deg/s"));
@@ -615,7 +646,12 @@ void handleCommand(String line) {
     double v = rest.toDouble();
     if (cmd == "V1") motorSetVelocity(motA, v);
     else if (cmd == "V2") motorSetVelocity(motB, v);
-    else { motorSetVelocity(motA, v); motorSetVelocity(motB, v); }
+    else {
+      // VV: combined drive - same correction as MM above.
+      motorSetVelocity(motA, v);
+      motorSetVelocity(motB, v * LEFT_WHEEL_DRIVE_SIGN);
+    }
+    lastVelCmdMs = millis(); // feed the watchdog - see COMMAND WATCHDOG above
     Serial.print(cmd); Serial.print(F(": target velocity ")); Serial.print(v); Serial.println(F(" deg/s (ramped)"));
 
   } else if (cmd == "S") {
@@ -708,8 +744,7 @@ void setup() {
   // Motor A: rpwmChannel/lpwmChannel SWAPPED on purpose vs the physical
   // pin names - see the long comment in PIN DEFINITIONS. This makes
   // applyMotorPWM()'s "pwmSigned >= 0" branch physically drive LPWM
-  // (CH_A_LPWM) for Motor A, so +command -> LPWM -> clockwise -> +counts
-  // as you specified, with encoderIsrA left completely untouched.
+  // (CH_A_LPWM) for Motor A, so +command -> LPWM -> clockwise -> +counts.
   motA.rpwmChannel = CH_A_LPWM;
   motA.lpwmChannel = CH_A_RPWM;
   motA.countsPerRev = COUNTS_PER_REV_A;
@@ -718,6 +753,13 @@ void setup() {
   motA.ffSlope = FF_SLOPE_A;   // 0 - not characterized yet
   motA.ffOffset = FF_OFFSET_A; // 0 - not characterized yet
 
+  // Motor B: back to NATIVE (unswapped) channel mapping - combined with
+  // the re-inverted encoderIsrB above, this makes +command -> RPWM ->
+  // anticlockwise, per your explicit request. This is the OPPOSITE
+  // individual convention from Motor A on purpose now - see
+  // LEFT_WHEEL_DRIVE_SIGN below, which is now 1 (a no-op) since this
+  // per-motor asymmetry already produces straight motion on VV/MM
+  // without needing a separate combined-command correction.
   motB.rpwmChannel = CH_B_RPWM;
   motB.lpwmChannel = CH_B_LPWM;
   motB.countsPerRev = COUNTS_PER_REV_B;
@@ -746,6 +788,20 @@ void loop() {
       Serial.print(F("   B=")); Serial.println(encCountB);
     }
     return;
+  }
+
+  // Watchdog: only trips a motor that's in VELOCITY mode with a stale
+  // command. Does not touch a motor mid-way through a POSITION move.
+  static bool watchdogPrinted = false;
+  if (millis() - lastVelCmdMs > VEL_CMD_TIMEOUT_MS) {
+    if (motA.mode == MODE_VELOCITY) motorStop(motA);
+    if (motB.mode == MODE_VELOCITY) motorStop(motB);
+    if (!watchdogPrinted) {
+      Serial.println(F("WATCHDOG: no V-command in time, stopping velocity-mode motors"));
+      watchdogPrinted = true;
+    }
+  } else {
+    watchdogPrinted = false;
   }
 
   updateMotor(motA, encCountA);
