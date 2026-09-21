@@ -1,0 +1,923 @@
+===== REPOSITORY =====
+origin	git@github.com:NOAA-dev/roomba.git (fetch)
+origin	git@github.com:NOAA-dev/roomba.git (push)
+main
+660a3cd update
+
+===== FILE TREE =====
+.
+├── chirag_gujju
+│   ├── awesome.pdf
+│   ├── CAMtastic1.Cam
+│   ├── CAMtastic2.Cam
+│   ├── CAMtastic3.Cam
+│   ├── CAMtastic4.Cam
+│   ├── chirag_gujju.OutJob
+│   ├── chirag_gujju.pdf
+│   ├── chirag_gujju.PrjPcb
+│   ├── chirag_gujju.PrjPcbStructure
+│   ├── PCB1.PcbDoc
+│   ├── PcbLib1.PcbLib
+│   ├── pcb.pdf
+│   ├── __Previews
+│   │   └── Sheet1.SchDocPreview
+│   ├── Project Logs for chirag_gujju
+│   │   ├── PCB1 PCB ECO 02-08-2026 06-19-28.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 07-44-57.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 08-10-18.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 08-26-30.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 12-33-05.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 12-36-36.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 12-51-07.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 12-52-38.LOG
+│   │   ├── PCB1 PCB ECO 02-08-2026 13-05-20.LOG
+│   │   ├── PCB1 PCB ECO 08-08-2026 22-07-25.LOG
+│   │   ├── PCB1 PCB ECO 08-08-2026 22-13-11.LOG
+│   │   ├── PCB1 PCB ECO 08-08-2026 22-13-52.LOG
+│   │   ├── PCB1 PCB ECO 13-08-2026 09-57-19.LOG
+│   │   ├── PCB1 PCB ECO 13-08-2026 09-57-39.LOG
+│   │   ├── PCB1 PCB ECO 25-07-2026 07-09-27.LOG
+│   │   ├── PCB1 PCB ECO 25-07-2026 07-13-08.LOG
+│   │   ├── PCB1 PCB ECO 25-07-2026 07-14-00.LOG
+│   │   └── PCB1 PCB ECO 25-07-2026 07-18-08.LOG
+│   ├── Project Outputs for chirag_gujju
+│   │   ├── gerber2.zip
+│   │   ├── gerber.zip
+│   │   ├── PCB1.apr
+│   │   ├── PCB1.DRR
+│   │   ├── PCB1.EXTREP
+│   │   ├── PCB1.GBL
+│   │   ├── PCB1.GBS
+│   │   ├── PCB1.GKO
+│   │   ├── PCB1.GM1
+│   │   ├── PCB1.GM32767
+│   │   ├── PCB1.GTL
+│   │   ├── PCB1.GTS
+│   │   ├── PCB1.LDP
+│   │   ├── PCB1-macro.APR_LIB
+│   │   ├── PCB1-NonPlated.TXT
+│   │   ├── PCB1-Plated.TXT
+│   │   ├── PCB1.REP
+│   │   ├── PCB1.RUL
+│   │   └── Status Report.Txt
+│   └── Sheet1.SchDoc
+├── collected_data
+├── entry_points.txt
+├── esp32_codes
+│   ├── dual_motor_controller_FINAL.txt
+│   └── motor_tests.txt
+├── file_tree.txt
+├── .gitignore
+├── launch_files.txt
+├── roomba_structure.txt
+├── ros2_packages.txt
+├── rosbag2_2026_09_16-22_22_40
+│   ├── metadata.yaml
+│   └── rosbag2_2026_09_16-22_22_40_0.mcap
+├── saved_maps
+│   └── map.pgm
+├── source_files.txt
+├── src
+│   ├── custom_interfaces
+│   │   ├── CMakeLists.txt
+│   │   ├── msg
+│   │   │   ├── NodeEnableStates.msg
+│   │   │   └── Validatedmap.msg
+│   │   ├── package.xml
+│   │   └── srv
+│   ├── global_planners
+│   │   ├── global_planners
+│   │   │   ├── a_star_node.py
+│   │   │   └── __init__.py
+│   │   ├── package.xml
+│   │   ├── resource
+│   │   │   └── global_planners
+│   │   ├── setup.cfg
+│   │   ├── setup.py
+│   │   └── test
+│   │       ├── test_copyright.py
+│   │       ├── test_flake8.py
+│   │       └── test_pep257.py
+│   ├── helpers
+│   │   ├── helpers
+│   │   │   ├── bcd_coverage_planner_node.py
+│   │   │   ├── bno055.py
+│   │   │   ├── data_logger.py
+│   │   │   ├── frontier_explorer.py
+│   │   │   ├── __init__.py
+│   │   │   ├── manager_node.py
+│   │   │   ├── map_validator.py
+│   │   │   ├── reactive_explorer.py
+│   │   │   ├── relay.py
+│   │   │   └── visualize_data_logs.py
+│   │   ├── package.xml
+│   │   ├── resource
+│   │   │   └── helpers
+│   │   ├── setup.cfg
+│   │   ├── setup.py
+│   │   └── test
+│   │       ├── test_copyright.py
+│   │       ├── test_flake8.py
+│   │       └── test_pep257.py
+│   ├── local_planners
+│   │   ├── local_planners
+│   │   │   ├── __init__.py
+│   │   │   └── pure_pursuit.py
+│   │   ├── package.xml
+│   │   ├── resource
+│   │   │   └── local_planners
+│   │   ├── setup.cfg
+│   │   ├── setup.py
+│   │   └── test
+│   │       ├── test_copyright.py
+│   │       ├── test_flake8.py
+│   │       └── test_pep257.py
+│   ├── program_bringup
+│   │   ├── CMakeLists.txt
+│   │   ├── config
+│   │   │   ├── controllers.yaml
+│   │   │   ├── ekf.yaml
+│   │   │   ├── gazebo_bridge.yaml
+│   │   │   ├── joystick_config.yaml
+│   │   │   ├── joystick_teleop.yaml
+│   │   │   ├── slam_toolbox.yaml
+│   │   │   ├── twist_mux_joy.yaml
+│   │   │   ├── twist_mux_locks.yaml
+│   │   │   └── twist_mux_topics.yaml
+│   │   ├── launch
+│   │   │   ├── joystick.launch.py
+│   │   │   ├── replay_rosbag.launch.xml
+│   │   │   ├── roomba.launch.xml
+│   │   │   ├── slam.launch.xml
+│   │   │   └── slam_plus_lifecycle.launch.xml
+│   │   ├── models
+│   │   │   ├── aws_robomaker_residential_AirconditionerA_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_AirconditionerA_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_AirconditionerA_01_collision.DAE
+│   │   │   │   │   └── aws_AirconditionerA_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_AirconditionerB_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_AirconditionerB_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_AirconditionerB_01_collision.DAE
+│   │   │   │   │   └── aws_AirconditionerB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_BalconyTable_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_BalconyTable_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_BalconyTable_01_collision.DAE
+│   │   │   │   │   └── aws_BalconyTable_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Ball_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Ball_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Ball_01_collision.DAE
+│   │   │   │   │   └── aws_Ball_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Bed_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_Bed_01.png
+│   │   │   │   │       ├── aws_BedA_01.png
+│   │   │   │   │       ├── aws_BedB_01.png
+│   │   │   │   │       └── aws_BedC_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Bed_01_collision.DAE
+│   │   │   │   │   └── aws_Bed_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Board_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Board_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Board_01_collision.DAE
+│   │   │   │   │   └── aws_Board_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Carpet_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Carpet_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Carpet_01_collision.DAE
+│   │   │   │   │   └── aws_Carpet_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_ChairA_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_ChairA_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_ChairA_01_collision.DAE
+│   │   │   │   │   └── aws_ChairA_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_ChairD_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_ChairD_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_ChairD_01_collision.DAE
+│   │   │   │   │   └── aws_ChairD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Chandelier_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Chandelier_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Chandelier_01_collision.DAE
+│   │   │   │   │   ├── aws_Chandelier_01.DAE
+│   │   │   │   │   └── aws_Chandelier_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_CoffeeTable_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_CoffeeTable_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_CoffeeTable_01_collision.DAE
+│   │   │   │   │   └── aws_CoffeeTable_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_CookingBench_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_CookingBench_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_CookingBench_01_collision.DAE
+│   │   │   │   │   ├── aws_CookingBench_01.DAE
+│   │   │   │   │   └── aws_CookingBench_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Curtain_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Curtain_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Curtain_01_collision.DAE
+│   │   │   │   │   └── aws_Curtain_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitA_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitA_01.png
+│   │   │   │   │       ├── aws_DeskPortraitA_02.png
+│   │   │   │   │       └── DeskPortraitA_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitA_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitA_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitA_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitA_01.png
+│   │   │   │   │       ├── aws_DeskPortraitA_02.png
+│   │   │   │   │       └── DeskPortraitA_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitA_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitA_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitB_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitB_01.png
+│   │   │   │   │       ├── aws_DeskPortraitB_02.png
+│   │   │   │   │       └── DeskPortraitB_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitB_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitB_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitB_01.png
+│   │   │   │   │       ├── aws_DeskPortraitB_02.png
+│   │   │   │   │       └── DeskPortraitB_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitB_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitC_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitC_01.png
+│   │   │   │   │       ├── aws_DeskPortraitC_02.png
+│   │   │   │   │       └── DeskPortraitC_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitC_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitC_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitC_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitC_01.png
+│   │   │   │   │       ├── aws_DeskPortraitC_02.png
+│   │   │   │   │       └── DeskPortraitC_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitC_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitC_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitD_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitD_01.png
+│   │   │   │   │       ├── aws_DeskPortraitD_02.png
+│   │   │   │   │       └── DeskPortraitD_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitD_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitD_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitD_01.png
+│   │   │   │   │       ├── aws_DeskPortraitD_02.png
+│   │   │   │   │       └── DeskPortraitD_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitD_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitD_03
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitD_01.png
+│   │   │   │   │       ├── aws_DeskPortraitD_02.png
+│   │   │   │   │       └── DeskPortraitD_03.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitD_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_DeskPortraitD_04
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_DeskPortraitD_01.png
+│   │   │   │   │       ├── aws_DeskPortraitD_02.png
+│   │   │   │   │       └── DeskPortraitD_04.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_DeskPortraitD_01_collision.DAE
+│   │   │   │   │   └── aws_DeskPortraitD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Door_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Door_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Door_01_collision.DAE
+│   │   │   │   │   └── aws_Door_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Dumbbell_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Dumbbell_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Dumbbell_01_collision.DAE
+│   │   │   │   │   └── aws_Dumbbell_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_FitnessEquipment_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_FitnessEquipment_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_FitnessEquipment_01_collision.DAE
+│   │   │   │   │   └── aws_FitnessEquipment_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_FloorB_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_FloorB_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_FloorB_01_collision.DAE
+│   │   │   │   │   └── aws_FloorB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_FoldingDoor_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_FoldingDoor_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_FoldingDoor_01_collision.DAE
+│   │   │   │   │   └── aws_FoldingDoor_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_FoldingDoor_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_FoldingDoor_02.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_FoldingDoor_02_collision.DAE
+│   │   │   │   │   └── aws_FoldingDoor_02_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Handle_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Handle_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Handle_01_collision.DAE
+│   │   │   │   │   └── aws_Handle_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_HouseWallB_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_HouseWallB_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_HouseWallB_01_collision.DAE
+│   │   │   │   │   └── aws_HouseWallB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_KitchenCabinet_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_KitchenCabinet_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_KitchenCabinet_01_collision.DAE
+│   │   │   │   │   └── aws_KitchenCabinet_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_KitchenTable_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_KitchenTable_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_KitchenTable_01_collision.DAE
+│   │   │   │   │   └── aws_KitchenTable_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_KitchenUtensils_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_KitchenUtensils_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_KitchenUtensils_01_collision.DAE
+│   │   │   │   │   └── aws_KitchenUtensils_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_LightC_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_LightC_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_LightC_01_collision.DAE
+│   │   │   │   │   └── aws_LightC_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_NightStand_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_NightStand_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_NightStand_01_collision.DAE
+│   │   │   │   │   └── aws_NightStand_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Pillow_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Pillow_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Pillow_01_collision.DAE
+│   │   │   │   │   └── aws_Pillow_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitA_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitA_01.png
+│   │   │   │   │       ├── aws_PortraitA_02.png
+│   │   │   │   │       └── PortraitA_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitA_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitA_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitA_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitA_01.png
+│   │   │   │   │       ├── aws_PortraitA_02.png
+│   │   │   │   │       └── PortraitA_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitA_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitA_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitB_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitB_01.png
+│   │   │   │   │       ├── aws_PortraitB_02.png
+│   │   │   │   │       └── PortraitB_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitB_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitB_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitB_01.png
+│   │   │   │   │       ├── aws_PortraitB_02.png
+│   │   │   │   │       └── PortraitB_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitB_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitB_03
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitB_01.png
+│   │   │   │   │       ├── aws_PortraitB_02.png
+│   │   │   │   │       └── PortraitB_03.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitB_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitC_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitC_01.png
+│   │   │   │   │       ├── aws_PortraitC_02.png
+│   │   │   │   │       └── PortraitC_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitC_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitC_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitD_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitD_01.png
+│   │   │   │   │       ├── aws_PortraitD_02.png
+│   │   │   │   │       └── PortraitD_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitD_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitD_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitD_01.png
+│   │   │   │   │       ├── aws_PortraitD_02.png
+│   │   │   │   │       └── PortraitD_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitD_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitD_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitE_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitE_01.png
+│   │   │   │   │       ├── aws_PortraitE_02.png
+│   │   │   │   │       └── PortraitE_01.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitE_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitE_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_PortraitE_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_PortraitE_01.png
+│   │   │   │   │       ├── aws_PortraitE_02.png
+│   │   │   │   │       └── PortraitE_02.jpg
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_PortraitE_01_collision.DAE
+│   │   │   │   │   └── aws_PortraitE_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Quilt_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Quilt_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Quilt_01_collision.DAE
+│   │   │   │   │   └── aws_Quilt_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Rangehood_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Rangehood_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Rangehood_01_collision.DAE
+│   │   │   │   │   └── aws_Rangehood_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_ReadingDesk_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_ReadingDesk_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_ReadingDesk_01_collision.DAE
+│   │   │   │   │   └── aws_ReadingDesk_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Refrigerator_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       ├── aws_Refrigerator_01.png
+│   │   │   │   │       └── aws_Refrigerator_02.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Refrigerator_01_collision.DAE
+│   │   │   │   │   ├── aws_Refrigerator_01.DAE
+│   │   │   │   │   └── aws_Refrigerator_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_RoomCeiling_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_RoomCeiling_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_RoomCeiling_01_collision.DAE
+│   │   │   │   │   └── aws_RoomCeiling_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_RoomWall_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_RoomWall_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_RoomWall_01_collision.DAE
+│   │   │   │   │   └── aws_RoomWall_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_RoomWindow_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_RoomWindow_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_RoomWindow_01_collision.DAE
+│   │   │   │   │   └── aws_RoomWindow_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_SeasoningBox_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_SeasoningBox_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_SeasoningBox_01_collision.DAE
+│   │   │   │   │   └── aws_SeasoningBox_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_SecurityCamera_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_SecurityCamera_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_SecurityCamera_01_collision.DAE
+│   │   │   │   │   └── aws_SecurityCamera_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_ShoeRack_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_ShoeRack_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_ShoeRack_01_collision.DAE
+│   │   │   │   │   └── aws_ShoeRack_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Sofa_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Sofa_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Sofa_01_collision.DAE
+│   │   │   │   │   ├── aws_Sofa_01.DAE
+│   │   │   │   │   └── aws_Sofa_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_SofaB_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_SofaB_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_SofaB_01_collision.DAE
+│   │   │   │   │   └── aws_SofaB_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_SofaC_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_SofaC_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_SofaC_01_collision.DAE
+│   │   │   │   │   └── aws_SofaC_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Tablet_01
+│   │   │   │   ├── .DS_Store
+│   │   │   │   ├── materials
+│   │   │   │   │   ├── .DS_Store
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Tablet_01_nologo.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Tablet_01_collision.DAE
+│   │   │   │   │   └── aws_Tablet_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Tableware_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Tableware_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Tableware_01_collision.DAE
+│   │   │   │   │   └── aws_Tableware_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Trash_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Trash_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Trash_01_collision.DAE
+│   │   │   │   │   └── aws_Trash_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_TV_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_TV_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_TV_01_collision.DAE
+│   │   │   │   │   └── aws_TV_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_TV_02
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_TV_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_TV_01_collision.DAE
+│   │   │   │   │   └── aws_TV_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_TVCabinet_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_TVCabinet_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_TVCabinet_01_collision.DAE
+│   │   │   │   │   └── aws_TVCabinet_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Vase_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Vase_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Vase_01_collision.DAE
+│   │   │   │   │   └── aws_Vase_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   ├── aws_robomaker_residential_Wardrobe_01
+│   │   │   │   ├── materials
+│   │   │   │   │   └── textures
+│   │   │   │   │       └── aws_Wardrobe_01.png
+│   │   │   │   ├── meshes
+│   │   │   │   │   ├── aws_Wardrobe_01_collision.DAE
+│   │   │   │   │   └── aws_Wardrobe_01_visual.DAE
+│   │   │   │   ├── model.config
+│   │   │   │   └── model.sdf
+│   │   │   └── .DS_Store
+│   │   ├── package.xml
+│   │   └── world
+│   │       └── small_house.world
+│   ├── roomba_hardware
+│   │   ├── CMakeLists.txt
+│   │   ├── include
+│   │   │   └── roomba_hardware
+│   │   │       ├── esp32_system_interface.hpp
+│   │   │       └── serial_link.hpp
+│   │   ├── package.xml
+│   │   ├── README.md
+│   │   ├── roomba_hardware.xml
+│   │   └── src
+│   │       ├── esp32_system_interface.cpp
+│   │       └── serial_link.cpp
+│   ├── urdfs
+│   │   ├── CMakeLists.txt
+│   │   ├── package.xml
+│   │   ├── rviz
+│   │   │   └── default.rviz
+│   │   └── urdf
+│   │       ├── camera.xacro
+│   │       ├── gazebo_plugin.xacro
+│   │       ├── imu_sensor.xacro
+│   │       ├── inertia_descriptions.xacro
+│   │       ├── lidar.xacro
+│   │       ├── materials.xacro
+│   │       ├── roomba.urdf.xacro
+│   │       └── ros2_hardwareinterface.xacro
+│   └── .vscode
+│       ├── browse.vc.db
+│       ├── browse.vc.db.lock
+│       ├── browse.vc.db-shm
+│       ├── browse.vc.db-wal
+│       ├── c_cpp_properties.json
+│       └── settings.json
+└── src.zip
+
+310 directories, 536 files
+
+===== ROS2 PACKAGES =====
+./src/roomba_hardware/package.xml:  <name>roomba_hardware</name>
+./src/local_planners/package.xml:  <name>local_planners</name>
+./src/custom_interfaces/package.xml:  <name>custom_interfaces</name>
+./src/program_bringup/package.xml:  <name>program_bringup</name>
+./src/helpers/package.xml:  <name>helpers</name>
+./src/urdfs/package.xml:  <name>urdfs</name>
+./src/global_planners/package.xml:  <name>global_planners</name>
+./install/roomba_hardware/share/roomba_hardware/package.xml:  <name>roomba_hardware</name>
+./install/local_planners/share/local_planners/package.xml:  <name>local_planners</name>
+./install/custom_interfaces/share/custom_interfaces/package.xml:  <name>custom_interfaces</name>
+./install/program_bringup/share/program_bringup/package.xml:  <name>program_bringup</name>
+./install/helpers/share/helpers/package.xml:  <name>helpers</name>
+./install/urdfs/share/urdfs/package.xml:  <name>urdfs</name>
+./install/global_planners/share/global_planners/package.xml:  <name>global_planners</name>
+
+===== LAUNCH FILES =====
+./src/program_bringup/launch/slam_plus_lifecycle.launch.xml
+./src/program_bringup/launch/replay_rosbag.launch.xml
+./src/program_bringup/launch/slam.launch.xml
+./src/program_bringup/launch/joystick.launch.py
+./src/program_bringup/launch/roomba.launch.xml
+./install/program_bringup/share/program_bringup/launch/slam_plus_lifecycle.launch.xml
+./install/program_bringup/share/program_bringup/launch/replay_rosbag.launch.xml
+./install/program_bringup/share/program_bringup/launch/slam.launch.xml
+./install/program_bringup/share/program_bringup/launch/joystick.launch.py
+./install/program_bringup/share/program_bringup/launch/roomba.launch.xml
+
+===== ENTRY POINTS =====
+./src/local_planners/setup.py:25:    entry_points={
+./src/local_planners/setup.py:26:        'console_scripts': [
+./src/local_planners/local_planners/pure_pursuit.py:269:    rclpy.init(args=args)
+./src/helpers/setup.py:25:    entry_points={
+./src/helpers/setup.py:26:        'console_scripts': [
+./src/helpers/helpers/map_validator.py:410:    rclpy.init(args=args)
+./src/helpers/helpers/manager_node.py:547:    rclpy.init(args=args)
+./src/helpers/helpers/data_logger.py:582:    rclpy.init(args=args)
+./src/helpers/helpers/bcd_coverage_planner_node.py:571:    rclpy.init(args=args)
+./src/helpers/helpers/reactive_explorer.py:105:    rclpy.init(args=args)
+./src/helpers/helpers/bno055.py:148:    rclpy.init(args=args)
+./src/helpers/helpers/relay.py:139:    rclpy.init(args=args)
+./src/helpers/helpers/frontier_explorer.py:305:    rclpy.init(args=args)
+./src/global_planners/setup.py:25:    entry_points={
+./src/global_planners/setup.py:26:        'console_scripts': [
+./src/global_planners/global_planners/a_star_node.py:345:    rclpy.init(args=args)
+./install/local_planners/lib/python3.12/site-packages/local_planners/pure_pursuit.py:269:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/map_validator.py:410:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/manager_node.py:547:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/data_logger.py:582:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/bcd_coverage_planner_node.py:571:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/reactive_explorer.py:105:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/relay.py:139:    rclpy.init(args=args)
+./install/helpers/lib/python3.12/site-packages/helpers/frontier_explorer.py:305:    rclpy.init(args=args)
+./install/global_planners/lib/python3.12/site-packages/global_planners/a_star_node.py:345:    rclpy.init(args=args)
+./build/roomba_hardware/CMakeFiles/3.28.3/CompilerIdCXX/CMakeCXXCompilerId.cpp:844:int main(int argc, char* argv[])
+./build/local_planners/build/lib/local_planners/pure_pursuit.py:269:    rclpy.init(args=args)
+./build/custom_interfaces/CMakeFiles/3.28.3/CompilerIdCXX/CMakeCXXCompilerId.cpp:844:int main(int argc, char* argv[])
+./build/program_bringup/CMakeFiles/3.28.3/CompilerIdCXX/CMakeCXXCompilerId.cpp:844:int main(int argc, char* argv[])
+./build/helpers/build/lib/helpers/map_validator.py:410:    rclpy.init(args=args)
+./build/helpers/build/lib/helpers/manager_node.py:547:    rclpy.init(args=args)
+./build/helpers/build/lib/helpers/data_logger.py:582:    rclpy.init(args=args)
+./build/helpers/build/lib/helpers/bcd_coverage_planner_node.py:571:    rclpy.init(args=args)
+./build/helpers/build/lib/helpers/reactive_explorer.py:105:    rclpy.init(args=args)
+./build/helpers/build/lib/helpers/relay.py:139:    rclpy.init(args=args)
+./build/helpers/build/lib/helpers/frontier_explorer.py:305:    rclpy.init(args=args)
+./build/urdfs/CMakeFiles/3.28.3/CompilerIdCXX/CMakeCXXCompilerId.cpp:844:int main(int argc, char* argv[])
+./build/global_planners/build/lib/global_planners/a_star_node.py:345:    rclpy.init(args=args)

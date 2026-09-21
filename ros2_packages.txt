@@ -1,0 +1,28 @@
+=== ./src/roomba_hardware/package.xml ===
+roomba_hardware
+=== ./src/local_planners/package.xml ===
+local_planners
+=== ./src/custom_interfaces/package.xml ===
+custom_interfaces
+=== ./src/program_bringup/package.xml ===
+program_bringup
+=== ./src/helpers/package.xml ===
+helpers
+=== ./src/urdfs/package.xml ===
+urdfs
+=== ./src/global_planners/package.xml ===
+global_planners
+=== ./install/roomba_hardware/share/roomba_hardware/package.xml ===
+roomba_hardware
+=== ./install/local_planners/share/local_planners/package.xml ===
+local_planners
+=== ./install/custom_interfaces/share/custom_interfaces/package.xml ===
+custom_interfaces
+=== ./install/program_bringup/share/program_bringup/package.xml ===
+program_bringup
+=== ./install/helpers/share/helpers/package.xml ===
+helpers
+=== ./install/urdfs/share/urdfs/package.xml ===
+urdfs
+=== ./install/global_planners/share/global_planners/package.xml ===
+global_planners
