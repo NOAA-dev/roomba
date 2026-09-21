@@ -1,0 +1,238 @@
+<?xml version="1.0"?>
+
+<launch>
+
+    <!-- ========================================================= -->
+    <!--                    HARDWARE ARGUMENTS                     -->
+    <!-- ========================================================= -->
+
+    <arg name="serial_port"
+         default="/dev/ttyUSB0"
+         description="ESP32 serial device"/>
+
+    <arg name="baud_rate"
+         default="115200"
+         description="ESP32 serial baud rate"/>
+
+
+    <!-- ========================================================= -->
+    <!--                     SLAM TOOLBOX                          -->
+    <!-- ========================================================= -->
+
+    <include file="$(find-pkg-share program_bringup)/launch/slam.launch.xml">
+        <arg name="use_sim_time" value="false"/>
+    </include>
+    <include file="$(find-pkg-share ydlidar_ros2_driver)/launch/ydlidar_launch.py">
+        <arg name="use_sim_time" value="false"/>
+    </include>
+
+    <!-- ========================================================= -->
+    <!--                   ROBOT DESCRIPTION                       -->
+    <!-- ========================================================= -->
+
+    <let name="robot_description_content"
+         value="$(command 'xacro $(find-pkg-share urdfs)/urdf/roomba_hardware.urdf.xacro
+                  serial_port:=$(var serial_port)
+                  baud_rate:=$(var baud_rate)
+                  controllers_config_path:=$(find-pkg-share program_bringup)/config/controllers.yaml')"/>
+
+    <let name="robot_controllers"
+         value="$(find-pkg-share program_bringup)/config/controllers.yaml"/>
+
+
+    <!-- ========================================================= -->
+    <!--                 ROBOT STATE PUBLISHER                     -->
+    <!-- ========================================================= -->
+
+    <node pkg="robot_state_publisher"
+          exec="robot_state_publisher"
+          name="robot_state_publisher"
+          output="screen">
+
+        <param name="robot_description"
+               value="$(var robot_description_content)"/>
+
+        <param name="publish_fixed_joints"
+               value="true"/>
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                    ROS2 CONTROL                           -->
+    <!-- ========================================================= -->
+
+    <node pkg="controller_manager"
+          exec="ros2_control_node"
+          name="controller_manager"
+          output="screen">
+
+        <param name="robot_description"
+               value="$(var robot_description_content)"/>
+
+        <param from="$(var robot_controllers)"/>
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                 JOINT STATE BROADCASTER                   -->
+    <!-- ========================================================= -->
+
+    <node pkg="controller_manager"
+          exec="spawner"
+          name="joint_state_broadcaster_spawner"
+          args="joint_state_broadcaster"
+          output="screen"/>
+
+
+    <!-- ========================================================= -->
+    <!--                  VELOCITY CONTROLLER                      -->
+    <!-- ========================================================= -->
+
+    <node pkg="controller_manager"
+          exec="spawner"
+          name="simple_velocity_controller_spawner"
+          args="simple_velocity_controller"
+          output="screen"/>
+
+
+    <!-- ========================================================= -->
+    <!--                       MANAGER                              -->
+    <!-- ========================================================= -->
+
+    <node pkg="helpers"
+          exec="manager_node"
+          name="manager_node"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+    <!-- ========================================================= -->
+    <!--                         BNO055                             -->
+    <!-- ========================================================= -->
+
+    <node pkg="helpers"
+          exec="bno055_imu_node"
+          name="bno055_imu_node"
+          output="screen"/>
+
+
+    <!-- ========================================================= -->
+    <!--                    ROBOT LOCALIZATION                     -->
+    <!-- ========================================================= -->
+
+    <node pkg="robot_localization"
+          exec="ekf_node"
+          name="ekf_filter_node"
+          output="screen">
+
+        <param from="$(find-pkg-share program_bringup)/config/ekf.yaml"/>
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+    <!-- ========================================================= -->
+    <!--                     GLOBAL PLANNER                         -->
+    <!-- ========================================================= -->
+
+    <node pkg="global_planners"
+          exec="a_star"
+          name="a_star"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                      LOCAL PLANNER                         -->
+    <!-- ========================================================= -->
+
+    <node pkg="local_planners"
+          exec="pure_pursuit"
+          name="pure_pursuit_node"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                     MAP VALIDATOR                           -->
+    <!-- ========================================================= -->
+
+    <node pkg="helpers"
+          exec="map_validator"
+          name="map_validator"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                    FRONTIER EXPLORER                        -->
+    <!-- ========================================================= -->
+
+    <node pkg="helpers"
+          exec="frontier_explorer"
+          name="frontier_explorer"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                    REACTIVE EXPLORER                        -->
+    <!-- ========================================================= -->
+
+    <node pkg="helpers"
+          exec="reactive_explorer"
+          name="object_avoider"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+    </node>
+
+
+    <!-- ========================================================= -->
+    <!--                      DATA LOGGER                            -->
+    <!-- ========================================================= -->
+
+    <node pkg="helpers"
+          exec="data_logger"
+          name="data_logger_node"
+          output="screen">
+
+        <param name="use_sim_time"
+               value="false"/>
+
+        <param name="sim"
+               value="false"/>
+
+    </node>
+
+</launch>

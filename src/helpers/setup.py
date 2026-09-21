@@ -31,6 +31,7 @@ setup(
             "coverage_planner = helpers.bcd_coverage_planner_node:main",
             "frontier_explorer = helpers.frontier_explorer:main",
             "manager_node = helpers.manager_node:main",
+            "bno055_imu_node = helpers.bno055:main",
         ],
     },
 )
