@@ -1,0 +1,15 @@
+# Stable device names for the roomba's serial hardware, keyed on physical
+# USB port rather than device identity. The ESP32 and LIDAR both report
+# identical idVendor/idProduct/serial (10c4:ea60, serial "0001") -- cheap
+# CP2102 clones sharing a factory-default serial string -- so port path is
+# the only thing that actually distinguishes them on this robot.
+#
+# ESP32  -> bus 4, port 4-1 (xhci-hcd.1 / usb4)
+# LIDAR  -> bus 2, port 2-1 (xhci-hcd.0 / usb2)
+#
+# WARNING: if either cable ever gets moved to a different physical USB
+# port on the Pi5, this mapping breaks silently. Keep the two cables
+# labeled at the Pi5 end.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", KERNELS=="4-1", SYMLINK+="roomba_esp32"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", KERNELS=="2-1", SYMLINK+="roomba_lidar"
