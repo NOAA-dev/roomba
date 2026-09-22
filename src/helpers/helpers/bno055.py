@@ -36,11 +36,19 @@ class BNO055Node(Node):
         self.declare_parameter('i2c_address', BNO055_ADDRESS)
         self.declare_parameter('frame_id', 'imu_link')
         self.declare_parameter('publish_rate', 50.0)  # 50 Hz
+        self.declare_parameter('accel_filter_alpha', 0.2)  # EMA smoothing factor, 0-1
 
         self.bus_num = self.get_parameter('i2c_bus').value
         self.addr = self.get_parameter('i2c_address').value
         self.frame_id = self.get_parameter('frame_id').value
         pub_rate = self.get_parameter('publish_rate').value
+        self.accel_alpha = self.get_parameter('accel_filter_alpha').value
+
+        # Exponential-moving-average state for linear acceleration, applied
+        # after mounting-rotation so it's smoothing in the published (imu_link)
+        # frame. None until the first sample arrives, so we don't filter
+        # toward a bogus zero on startup.
+        self._filtered_accel = None
 
         # Publisher setup
         self.publisher_ = self.create_publisher(Imu, '/imu', 10)
@@ -58,7 +66,10 @@ class BNO055Node(Node):
         # Timer setup (50 Hz -> 0.02s period)
         timer_period = 1.0 / pub_rate
         self.timer = self.create_timer(timer_period, self.publish_imu)
-        self.get_logger().info(f'BNO055 Node initialized. Publishing on /imu at {pub_rate} Hz.')
+        self.get_logger().info(
+            f'BNO055 Node initialized. Publishing on /imu at {pub_rate} Hz '
+            f'(accel EMA alpha={self.accel_alpha}).'
+        )
 
     def init_bno055(self):
         """Initializes BNO055 into NDOF fusion mode via smbus2."""
@@ -88,6 +99,26 @@ class BNO055Node(Node):
             self.get_logger().info('BNO055 successfully configured in NDOF mode.')
         except Exception as e:
             self.get_logger().error(f'I2C Communication Error during initialization: {e}')
+
+    def _apply_accel_filter(self, accel_link):
+        """Exponential moving average low-pass filter on linear acceleration.
+
+        filtered = alpha * new + (1 - alpha) * filtered_previous
+
+        Lower accel_filter_alpha = heavier smoothing, more lag.
+        Higher accel_filter_alpha = less smoothing, more responsive.
+        Tune based on your publish_rate: for a cutoff frequency f_c (Hz),
+        alpha ~= 1 / (1 + 1/(2*pi*f_c*dt)) where dt = 1/publish_rate.
+        """
+        if self._filtered_accel is None:
+            self._filtered_accel = list(accel_link)
+        else:
+            a = self.accel_alpha
+            self._filtered_accel = [
+                a * new + (1.0 - a) * prev
+                for new, prev in zip(accel_link, self._filtered_accel)
+            ]
+        return self._filtered_accel
 
     def publish_imu(self):
         try:
@@ -124,6 +155,11 @@ class BNO055Node(Node):
             gyro_link = self.R_mount.apply(gyro_sensor)
             accel_link = self.R_mount.apply(accel_sensor)
 
+            # Low-pass filter the linear acceleration only -- gyro and
+            # orientation come from BNO055's own onboard fusion filter
+            # already and don't benefit from a second software filter here.
+            accel_filtered = self._apply_accel_filter(accel_link)
+
             # Construct ROS 2 IMU Message
             msg = Imu()
             msg.header.stamp = self.get_clock().now().to_msg()
@@ -131,7 +167,7 @@ class BNO055Node(Node):
 
             msg.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
             msg.angular_velocity = Vector3(x=gyro_link[0], y=gyro_link[1], z=gyro_link[2])
-            msg.linear_acceleration = Vector3(x=accel_link[0], y=accel_link[1], z=accel_link[2])
+            msg.linear_acceleration = Vector3(x=accel_filtered[0], y=accel_filtered[1], z=accel_filtered[2])
 
             # Set orientation & sensor covariance (-1 if unknown / not calculated)
             msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
