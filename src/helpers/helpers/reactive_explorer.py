@@ -3,7 +3,7 @@ import rclpy
 import math
 import numpy as np
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, DurabilityPolicy
+from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
 from custom_interfaces.msg import Validatedmap, NodeEnableStates
@@ -24,7 +24,7 @@ class ReactiveExplorerNode(Node):
         # sole authority for this is manager_node — default OFF
         self.enabled = False
 
-        self.subscriber_ = self.create_subscription(LaserScan, "/scan", self.laser_callback, 10)
+        self.subscriber_ = self.create_subscription(LaserScan, "/scan", self.laser_callback, qos_profile_sensor_data)
         self.subscriber_1 = self.create_subscription(Validatedmap, "/validated_map", self.map_validated, 10)
         self.publisher_ = self.create_publisher(Twist, "/autonomous_cmd_vel", 10)
 
