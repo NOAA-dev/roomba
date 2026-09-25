@@ -25,7 +25,7 @@ setup).
 
 | param                | default        | meaning                                                              |
 |-----------------------|----------------|-----------------------------------------------------------------------|
-| `serial_port`          | *(required)*   | e.g. `/dev/ttyUSB0`                                                   |
+| `serial_port`          | *(required)*   | `/dev/roomba_esp32` (udev-stable symlink, see below)                  |
 | `baud_rate`             | `115200`       | must match the ESP32 firmware                                         |
 | `left_motor_channel`    | `B`            | which ESP32 motor (`A`/`B`) is `base_left_wheel_joint`                |
 | `right_motor_channel`   | `A`            | which ESP32 motor (`A`/`B`) is `base_right_wheel_joint`                |
@@ -93,20 +93,31 @@ Other design notes:
 
 ## Serial permissions
 
-The ESP32 will typically show up as `/dev/ttyUSB0` or `/dev/ttyACM0`, owned
-by `root:dialout` with group read/write. Add your user to the `dialout`
-group once:
+The ESP32 shows up as a raw `/dev/ttyUSBx`, owned by `root:dialout` with
+group read/write. Add your user to the `dialout` group once:
 
 ```bash
 sudo usermod -aG dialout $USER
-# log out/in (or `newgrp dialout`) for the group change to take effect
 ```
 
-If the robot has multiple USB serial devices (LIDAR/IMU too) and
-`/dev/ttyUSB0` isn't stable across reboots/replugs, add a udev rule keyed
-on the ESP32's USB vendor/product ID (`udevadm info -a -n /dev/ttyUSB0` to
-find them) so it always shows up under a fixed name, and point
-`serial_port` at that instead.
+The robot also has a YDLidar on its own USB-serial adapter, and both
+devices happen to be identical CP2102 clones with the same
+idVendor:idProduct:serial (`10c4:ea60`, serial `0001`) -- udev can't tell
+them apart by identity at all, only by which physical USB port they're
+plugged into. `src/program_bringup/udev/99-roomba-serial.rules` handles
+this by keying stable symlinks off port path: `/dev/roomba_esp32` (bus 4,
+port 4-1) for the ESP32, `/dev/roomba_lidar` (bus 2, port 2-1) for the
+LIDAR (`ydlidar_ros2_driver`'s `params/ydlidar.yaml` already points at the
+latter). `serial_port` defaults to `/dev/roomba_esp32` for exactly this
+reason -- pointing it at a raw `/dev/ttyUSBx` instead works fine with only
+one of the two devices plugged in, but which raw number each one gets is
+non-deterministic once both are present (same reported serial number means
+udev's usual persistent-naming can't disambiguate them either), so it can
+silently pick up the wrong device.
+
+If either cable ever moves to a different physical USB port on the host,
+the rule's `KERNELS=="4-1"` / `KERNELS=="2-1"` port paths need updating to
+match (`udevadm info -a -n /dev/ttyUSBx` to find the new one).
 
 ## pluginlib export
 

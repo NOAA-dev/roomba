@@ -7,7 +7,7 @@
     <!-- ========================================================= -->
 
     <arg name="serial_port"
-         default="/dev/ttyUSB0"
+         default="/dev/roomba_esp32"
          description="ESP32 serial device"/>
 
     <arg name="baud_rate"

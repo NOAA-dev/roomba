@@ -7,7 +7,7 @@
          ESP32 hardware plugin (see roomba_hardware package); serial_port/
          baud_rate are only used in that case. -->
     <xacro:arg name="use_sim" default="false" />
-    <xacro:arg name="serial_port" default="/dev/ttyUSB0" />
+    <xacro:arg name="serial_port" default="/dev/roomba_esp32" />
     <xacro:arg name="baud_rate" default="115200" />
 
     <xacro:include filename="materials.xacro" />

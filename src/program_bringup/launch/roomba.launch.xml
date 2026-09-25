@@ -1,7 +1,7 @@
 <launch>
 
     <arg name="sim" default="true" description="true = Gazebo simulation, false = real ESP32 hardware"/>
-    <arg name="serial_port" default="/dev/ttyUSB0" description="ESP32 serial device (real hardware only)"/>
+    <arg name="serial_port" default="/dev/roomba_esp32" description="ESP32 serial device (real hardware only)"/>
     <arg name="baud_rate" default="115200" description="ESP32 serial baud rate (real hardware only)"/>
     <arg name="gui" default="true" description="Start RViz2 automatically with this launch file"/>
 

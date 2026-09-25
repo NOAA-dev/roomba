@@ -44,7 +44,7 @@ hardware_interface::CallbackReturn ESP32SystemInterface::on_init(
     RCLCPP_FATAL(
       get_logger(),
       "roomba_hardware requires a <param name=\"serial_port\"> entry under <hardware> "
-      "(e.g. /dev/ttyUSB0) -- none was found.");
+      "(e.g. /dev/roomba_esp32) -- none was found.");
     return hardware_interface::CallbackReturn::ERROR;
   }
   serial_port_ = it->second;
