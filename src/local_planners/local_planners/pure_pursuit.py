@@ -8,7 +8,7 @@ from rclpy.duration import Duration
 from nav_msgs.msg import Path
 from rclpy.node import Node
 from tf_transformations import euler_from_quaternion
-from rclpy.qos import QoSProfile, DurabilityPolicy
+from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from custom_interfaces.msg import NodeEnableStates
 
@@ -73,7 +73,8 @@ class PurePursuitNode(Node):
         self.front_clearance = self.clear_default
         self.right_clearance = self.clear_default
         self.left_clearance = self.clear_default
-        self.subscriber_ = self.create_subscription(LaserScan, "/scan", self.laser_callback, 10)
+
+        self.subscriber_ = self.create_subscription(LaserScan, "/scan", self.laser_callback, qos_profile_sensor_data)
 
         enable_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.enable_sub = self.create_subscription(
