@@ -25,6 +25,13 @@
     <include file="$(find-pkg-share ydlidar_ros2_driver)/launch/ydlidar_launch.py">
         <arg name="use_sim_time" value="false"/>
     </include>
+    <!-- ========================================================= -->
+    <!--                     Joystick and Relay                    -->
+    <!-- ========================================================= -->
+
+    <include file="$(find-pkg-share program_bringup)/launch/joystick.launch.py">
+        <arg name="use_sim_time" value="false"/>
+    </include>
 
     <!-- ========================================================= -->
     <!--                   ROBOT DESCRIPTION                       -->
@@ -116,7 +123,6 @@
                value="false"/>
 
     </node>
-
     <!-- ========================================================= -->
     <!--                         BNO055                             -->
     <!-- ========================================================= -->
