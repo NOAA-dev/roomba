@@ -13,7 +13,7 @@ class ReactiveExplorerNode(Node):
     def __init__(self):
         super().__init__("object_avoider")
         self.t = float()
-        self.declare_parameter("min_distance", 1.2)
+        self.declare_parameter("min_distance", 0.52)
         self.declare_parameter("forward_speed", 1.0)
         self.declare_parameter("lidar_offset_x", 0.1)
         self.min_distance = self.get_parameter("min_distance").value  # meters
@@ -83,7 +83,7 @@ class ReactiveExplorerNode(Node):
 
             cmd = Twist()
 
-            safe_distance = 0.8
+            safe_distance = 0.52
             max_speed = 0.4
             ratio = front_clearance / safe_distance
             if ratio >= 1.0:
