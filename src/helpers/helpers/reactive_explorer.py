@@ -83,7 +83,7 @@ class ReactiveExplorerNode(Node):
 
             cmd = Twist()
 
-            safe_distance = 0.52
+            safe_distance = 0.4
             max_speed = 0.4
             ratio = front_clearance / safe_distance
             if ratio >= 1.0:
