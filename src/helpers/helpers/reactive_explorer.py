@@ -13,8 +13,14 @@ class ReactiveExplorerNode(Node):
     def __init__(self):
         super().__init__("object_avoider")
         self.t = float()
-        self.declare_parameter("min_distance", 0.52)
+        self.declare_parameter("min_distance", 1.2)
         self.declare_parameter("forward_speed", 1.0)
+        # LIDAR is mounted 0.1m forward (+x) of base_link/robot center (see
+        # base_lidar_joint in roomba.urdf.xacro). Raw scan ranges are
+        # distances FROM THE SENSOR, not from robot center - a beam
+        # straight ahead reads ~0.1m shorter than the obstacle's true
+        # distance from center, and off-axis beams need the full (x,y)
+        # correction, not just a flat offset. See _range_from_center().
         self.declare_parameter("lidar_offset_x", 0.1)
         self.min_distance = self.get_parameter("min_distance").value  # meters
         self.forward_speed = self.get_parameter("forward_speed").value  # meters/second
@@ -38,6 +44,13 @@ class ReactiveExplorerNode(Node):
         self.enabled = msg.reactive_explorer
 
     def _range_from_center(self, r, angle):
+        """Convert a raw range+angle (in the LIDAR's own frame) into the
+        equivalent distance from base_link/robot center, accounting for
+        the LIDAR sitting lidar_offset_x forward of center. The sensor-
+        to-base mounting has no rotation (see roomba.urdf.xacro), only
+        this translation, so a beam's Cartesian point in the sensor frame
+        is just shifted by (lidar_offset_x, 0) to land in the base frame.
+        """
         x = r * math.cos(angle) + self.lidar_offset_x
         y = r * math.sin(angle)
         return math.hypot(x, y)
@@ -66,8 +79,17 @@ class ReactiveExplorerNode(Node):
             angle_end = np.deg2rad(30)
             left_angle = np.deg2rad(120)
             right_angle = np.deg2rad(-120)
+            range_min = getattr(msg, "range_min", 0.05)
             for i, r in enumerate(ranges):
-                if math.isfinite(r):
+                # A LIDAR reports 0.0 (or a value below its own range_min)
+                # for "no valid return" - out of range, absorbed, a
+                # reflective surface, etc. That is NOT an obstacle;
+                # math.isfinite(0.0) is True, so without the r > range_min
+                # check every invalid return was being read as an obstacle
+                # sitting right on the sensor, permanently winning the
+                # sector min() over any real, farther object and making
+                # front_clearance look ~0 almost every scan.
+                if math.isfinite(r) and r > range_min:
                     r_center = self._range_from_center(r, angle)
                     if (angle >= right_angle and angle <= -angle_end):
                         right_range.append(r_center)
@@ -93,9 +115,9 @@ class ReactiveExplorerNode(Node):
                 linear = 0.0
                 error = left_clearance - right_clearance
                 if error >= 0.0:
-                    angular = 0.5
+                    angular = 0.3
                 else:
-                    angular = -0.5
+                    angular = -0.3
 
             cmd.linear.x = linear
             cmd.angular.z = angular

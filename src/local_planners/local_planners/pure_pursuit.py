@@ -54,6 +54,10 @@ class PurePursuitNode(Node):
         self.declare_parameter("avoid_start_distance", 0.8)
         self.declare_parameter("avoid_stop_distance", 0.3)
         self.declare_parameter("clear_default", 10.0)
+        # LIDAR mounted 0.1m forward (+x) of base_link/robot center (see
+        # base_lidar_joint in roomba.urdf.xacro) - raw scan ranges are
+        # from the sensor, not robot center. Same correction as
+        # reactive_explorer's _range_from_center().
         self.declare_parameter("lidar_offset_x", 0.1)
 
         self.lookahead_distance = self.get_parameter("lookahead_distance").value
@@ -86,6 +90,10 @@ class PurePursuitNode(Node):
         self.enabled = msg.pure_pursuit
 
     def _range_from_center(self, r, angle):
+        """Same correction as reactive_explorer.py's helper of the same
+        name - converts a raw sensor-frame range+angle into distance from
+        base_link/robot center, given the LIDAR's forward mounting offset.
+        """
         x = r * math.cos(angle) + self.lidar_offset_x
         y = r * math.sin(angle)
         return math.hypot(x, y)
@@ -122,8 +130,15 @@ class PurePursuitNode(Node):
         front_angle = np.deg2rad(35)
         left_angle = np.deg2rad(120)
         right_angle = np.deg2rad(-120)
+        range_min = getattr(msg, "range_min", 0.05)
         for r in ranges:
-            if math.isfinite(r):
+            # Same fix as reactive_explorer.py: a LIDAR reports 0.0 (or
+            # below its own range_min) for "no valid return", not a real
+            # obstacle. math.isfinite(0.0) is True, so without this check
+            # every invalid return read as an obstacle sitting on the
+            # sensor and could win the sector min() over a real, farther
+            # object.
+            if math.isfinite(r) and r > range_min:
                 r_center = self._range_from_center(r, angle)
                 if right_angle <= angle <= -front_angle:
                     right_range.append(r_center)
