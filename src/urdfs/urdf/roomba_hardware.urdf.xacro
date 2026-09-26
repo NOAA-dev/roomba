@@ -133,7 +133,7 @@
     <joint name="base_lidar_joint" type="fixed">
         <parent link="base_link" />
         <child link="lidar_link" />
-        <origin xyz="0 0 ${0.1 + (lidar_height) / 2.0}" rpy="0 0 0" />
+        <origin xyz="0.1 0 ${0.1 + (lidar_height) / 2.0}" rpy="0 0 0" />
     </joint>
 
     <link name="lidar_link_optical"/>
