@@ -15,8 +15,10 @@ class ReactiveExplorerNode(Node):
         self.t = float()
         self.declare_parameter("min_distance", 1.2)
         self.declare_parameter("forward_speed", 1.0)
+        self.declare_parameter("lidar_offset_x", 0.1)
         self.min_distance = self.get_parameter("min_distance").value  # meters
         self.forward_speed = self.get_parameter("forward_speed").value  # meters/second
+        self.lidar_offset_x = self.get_parameter("lidar_offset_x").value
 
         self.keep_exploring = True
         self.once = False
@@ -34,6 +36,11 @@ class ReactiveExplorerNode(Node):
 
     def enable_callback(self, msg: NodeEnableStates):
         self.enabled = msg.reactive_explorer
+
+    def _range_from_center(self, r, angle):
+        x = r * math.cos(angle) + self.lidar_offset_x
+        y = r * math.sin(angle)
+        return math.hypot(x, y)
 
     def map_validated(self, msg: Validatedmap):
         if msg.valid == True:
@@ -61,12 +68,13 @@ class ReactiveExplorerNode(Node):
             right_angle = np.deg2rad(-120)
             for i, r in enumerate(ranges):
                 if math.isfinite(r):
+                    r_center = self._range_from_center(r, angle)
                     if (angle >= right_angle and angle <= -angle_end):
-                        right_range.append(r)
+                        right_range.append(r_center)
                     if (angle >= -front_angle and angle <= front_angle):
-                        front_range.append(r)
+                        front_range.append(r_center)
                     if (angle >= angle_end and angle <= left_angle):
-                        left_range.append(r)
+                        left_range.append(r_center)
                 angle += angle_inc
 
             front_clearance = min(front_range) if front_range else self.min_distance * 3

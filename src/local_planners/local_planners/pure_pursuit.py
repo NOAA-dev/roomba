@@ -54,6 +54,7 @@ class PurePursuitNode(Node):
         self.declare_parameter("avoid_start_distance", 0.8)
         self.declare_parameter("avoid_stop_distance", 0.3)
         self.declare_parameter("clear_default", 10.0)
+        self.declare_parameter("lidar_offset_x", 0.1)
 
         self.lookahead_distance = self.get_parameter("lookahead_distance").value
         self.min_lookahead = self.get_parameter("min_lookahead").value
@@ -66,6 +67,7 @@ class PurePursuitNode(Node):
         self.avoid_start_distance = self.get_parameter("avoid_start_distance").value
         self.avoid_stop_distance = self.get_parameter("avoid_stop_distance").value
         self.clear_default = self.get_parameter("clear_default").value
+        self.lidar_offset_x = self.get_parameter("lidar_offset_x").value
 
         self.publisher_ = self.create_publisher(Twist, "/autonomous_cmd_vel", 10)
         self.timer_ = self.create_timer(0.02, self.pure_pursuit)  # 50 Hz
@@ -82,6 +84,11 @@ class PurePursuitNode(Node):
 
     def enable_callback(self, msg: NodeEnableStates):
         self.enabled = msg.pure_pursuit
+
+    def _range_from_center(self, r, angle):
+        x = r * math.cos(angle) + self.lidar_offset_x
+        y = r * math.sin(angle)
+        return math.hypot(x, y)
 
     # ------------------------------------------------------------------
     def check_tf(self):
@@ -117,12 +124,13 @@ class PurePursuitNode(Node):
         right_angle = np.deg2rad(-120)
         for r in ranges:
             if math.isfinite(r):
+                r_center = self._range_from_center(r, angle)
                 if right_angle <= angle <= -front_angle:
-                    right_range.append(r)
+                    right_range.append(r_center)
                 if -front_angle <= angle <= front_angle:
-                    front_range.append(r)
+                    front_range.append(r_center)
                 if front_angle <= angle <= left_angle:
-                    left_range.append(r)
+                    left_range.append(r_center)
             angle += angle_inc
 
         self.front_clearance = min(front_range) if front_range else self.clear_default
