@@ -55,7 +55,7 @@ class BNO055Node(Node):
 
         # Compute fixed orientation mounting transformation matrix
         # Mounting condition: Inverted (180 deg around X-axis) + Clockwise 180 deg around Z-axis
-        r_x_inv = R.from_euler('x', 180, degrees=True)
+        r_x_inv = R.from_euler('x', -180, degrees=True)
         r_z_cw = R.from_euler('z', -180, degrees=True)
         # Combined mounting rotation matrix (Sensor to Link transform)
         self.R_mount = r_z_cw * r_x_inv
