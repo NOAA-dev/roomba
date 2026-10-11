@@ -170,8 +170,8 @@ struct MotorControl;
 // Both motors: 5070 counts per OUTPUT-shaft revolution (confirmed by the user;
 // earlier notes had 5100 / 5400 for Motor B, which were wrong - the 5100 made
 // Motor B run ~0.6% fast and skewed odometry).
-double COUNTS_PER_REV_A = 5070.0;   // Motor A
-double COUNTS_PER_REV_B = 5070.0;   // Motor B
+double COUNTS_PER_REV_A = 5075.0;   // Motor A
+double COUNTS_PER_REV_B = 5077.0;   // Motor B
 
 // ---------------------------------------------------------------------
 // FEEDFORWARD MODEL - PER-MOTOR LOOKUP TABLES (speed -> PWM)
