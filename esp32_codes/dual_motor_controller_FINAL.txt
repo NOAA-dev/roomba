@@ -2,6 +2,30 @@
   ==========================================================================
   ESP32 Dual-Motor Closed-Loop Angle/Speed Controller  (v3)
   ==========================================================================
+  v4 - calibration-based update (open-loop sweeps with the wheels lifted):
+    - COUNTS_PER_REV_B 5100 -> 5070 (both motors are now 5070).
+    - Feedforward: straight-line fit replaced by per-motor speed->PWM lookup
+      tables (see FEEDFORWARD MODEL), plus a start-from-rest kick.
+    - Velocity PID retuned for the measured plant (~2.5 deg/s per PWM, time
+      constant ~20 ms, ~75 ms measurement lag): Kp 2.5->0.15, Ki 8->0.5,
+      Kd 0.02->0. The old gains give a loop gain of ~6 on this plant against a
+      stability limit of roughly 1-2 for that lag.
+    - Velocity filter alpha 0.3 -> 0.5 (less lag; measured noise is tiny).
+    - Asymmetric ramps: speeding up uses accelDegS2 (600 deg/s2), slowing
+      down/stopping/reversing uses decelDegS2 (1200 deg/s2). Was a single
+      60 deg/s2 limit for everything.
+    - Reversal interlock: no drive opposite to measured motion while
+      |measured| > 30 deg/s - output goes to 0 (BTS7960 dynamic brake) instead,
+      so a fast ramp can never plug the driver.
+    - Integrator limited to +-40 PWM of output (was effectively unlimited).
+    - Polarity/runaway guard: a wheel that keeps moving against its target
+      stops and latches a FAULT until 'S' is sent.
+    - PWM_MAX 230 -> 200.
+    - Motor A encoder sign flipped in encoderIsrA() (see there).
+    - Serial protocol unchanged except 'A <accel> [<decel>]'.
+    FIRST RUN after flashing: wheels lifted, 'V1 30' then 'V2 30', confirm
+    VEL A / VEL B come back POSITIVE and settle near 30, then 'S'.
+
   Changes from v3.1, based on a physical rewiring you did (pins A and B
   are now on physically different wheels, and B's driver wiring changed
   to match A's convention instead of needing an inverted encoder):
@@ -66,9 +90,10 @@
     - 2x OE-28 Hall effect quadrature encoders
 
   Pin mapping (rewired - Motor A is now RIGHT, Motor B is now LEFT):
-    MOTOR A (RIGHT): RPWM=GPIO32  LPWM=GPIO33  ENC=GPIO16/17  CPR=5070  [feedforward NOT YET]
-    MOTOR B (LEFT):  RPWM=GPIO25  LPWM=GPIO26  ENC=GPIO18/19  CPR=5100  [fully bench-tested]
-  Both: +command -> LPWM -> clockwise -> encoder counts increase.
+    MOTOR A (RIGHT): RPWM=GPIO32  LPWM=GPIO33  ENC=GPIO16/17  CPR=5070  [calibrated, v4]
+    MOTOR B (LEFT):  RPWM=GPIO25  LPWM=GPIO26  ENC=GPIO18/19  CPR=5070  [calibrated, v4]
+  Drive: +command -> A: LPWM(33), B: RPWM(25). Encoder signs are set so
+  +command -> +counts on both (A via encoderIsrA, B via encoderIsrB).
 
   ==========================================================================
   SERIAL COMMANDS (115200 baud, newline terminated) - TRANSPORT LAYER ONLY
@@ -81,7 +106,7 @@
     VV <speed_deg_s>               Continuous velocity mode, BOTH motors
     S                              Ramped stop, both motors (decelerates to 0)
     Z                              Zero/reset both encoder position counters
-    A <deg_s2>                     Set accel/decel limit (both motors)
+    A <accel> [<decel>]            Set speed-up / slow-down limits, deg/s2 (both motors)
     K1 <Kp> <Ki> <Kd>              Motor A velocity-PID gains
     K2 <Kp> <Ki> <Kd>              Motor B velocity-PID gains
     C                              Toggle raw encoder count streaming (calibration)
@@ -130,7 +155,9 @@ struct MotorControl;
 // ---------------------------------------------------------------------
 #define PWM_FREQ_HZ   20000
 #define PWM_RES_BITS  8
-#define PWM_MAX       230
+#define PWM_MAX       200   // was 230. Above ~190 PWM speed rises 4-5 deg/s per PWM
+                            // (double the mid-range gain) and peak current is highest;
+                            // 200 PWM = ~484 deg/s = ~0.30 m/s with 0.035 m wheels.
 
 #define CH_A_RPWM 0
 #define CH_A_LPWM 1
@@ -140,61 +167,52 @@ struct MotorControl;
 // ---------------------------------------------------------------------
 // CALIBRATED CONSTANTS
 // ---------------------------------------------------------------------
-// Motor B (RPWM=25/LPWM=26/ENC=18,19): confirmed 5100 CPR. Earlier notes
-// had two inconsistent numbers (~5070 from manual testing, 5400 used
-// during the fixed-PWM sweep) - 5100 is the resolved/confirmed value.
-// Note the feedforward fit below was originally built using speed data
-// computed against the old 5400 figure; a ~6% CPR change shifts the
-// deg/s values that fit was based on by the same ~6%, so the feedforward
-// coefficients are now slightly off too and could use a re-fit against
-// this corrected CPR if accuracy at specific speeds matters to you.
-double COUNTS_PER_REV_A = 5070.0;   // Motor A - confirmed by bench test
-double COUNTS_PER_REV_B = 5100.0;   // Motor B - confirmed
+// Both motors: 5070 counts per OUTPUT-shaft revolution (confirmed by the user;
+// earlier notes had 5100 / 5400 for Motor B, which were wrong - the 5100 made
+// Motor B run ~0.6% fast and skewed odometry).
+double COUNTS_PER_REV_A = 5070.0;   // Motor A
+double COUNTS_PER_REV_B = 5070.0;   // Motor B
 
 // ---------------------------------------------------------------------
-// FEEDFORWARD MODEL - PER MOTOR
+// FEEDFORWARD MODEL - PER-MOTOR LOOKUP TABLES (speed -> PWM)
 // ---------------------------------------------------------------------
-// From your fixed-PWM characterization of Motor B driven via LPWM
-// (clockwise) only, at CPR=5400:
-//     PWM 30  -> motor did not start (static-friction deadband)
-//     PWM 50  -> ~1.08 rad/s      PWM 75  -> ~2.32 rad/s
-//     PWM 100 -> ~3.34 rad/s      PWM 150 -> ~5.38 rad/s
-//     PWM 200 -> ~7.39 rad/s (~70.6 RPM)
-// Least-squares fit: PWM ~= 23.28 * omega(rad/s) + 25.10, RMS residual
-// ~= 3.17 PWM counts. Converted to the deg/s units used everywhere else
-// in this file (23.28 * pi/180 = 0.4062):
-double FF_SLOPE_B = 0.4062;
-double FF_OFFSET_B = 25.10;
-// Deadband update: further testing confirmed the static-friction PWM
-// deadband is ~35 (max) for BOTH Motor A and Motor B, not just the
-// PWM=30 single data point B's original sweep found. Any PWM magnitude
-// below ~35 risks not starting the motor from rest on either motor.
-// NOT YET VALIDATED beyond that one direction/motor:
-//   - No sweep data exists for Motor B's RPWM/anticlockwise direction.
-//   - The fit describes the already-moving (kinetic) regime. PWM=30
-//     didn't move the motor at all, which is a real deadband *above*
-//     the fitted zero-speed intercept of 25.10 - so very small nonzero
-//     speed commands may just stall rather than creep slowly.
-//
-// Motor A has NOT been characterized yet (you said so explicitly) - set
-// to 0/0 so it applies NO feedforward rather than silently borrowing
-// Motor B's numbers, which would be a guess dressed up as data. Position
-// mode and low-effort velocity moves on A will rely on PID alone until
-// you run A through the same PWM sweep and fill these in. Do keep the
-// confirmed ~35 PWM deadband (above) in mind when picking sweep points -
-// don't waste sweep points below it.
-double FF_SLOPE_A = 0.0;
-double FF_OFFSET_A = 0.0;
+// Replaces the old straight-line fit (PWM = slope*speed + offset). Open-loop
+// sweeps on both motors (wheels lifted, 8-bit PWM @ 20 kHz, CPR 5070, both
+// directions averaged) showed speed vs PWM is NOT a straight line: a knee just
+// above the deadband (~4.6 deg/s per PWM), a straight region from ~95 to ~185
+// PWM (~2.5 deg/s per PWM), then a steep rise above ~190 PWM (4-5 deg/s per
+// PWM). One line was off by up to ~13 PWM; interpolating these tables is not.
+//   - Row 0 (0 deg/s) is an EXTRAPOLATION of the low-end fit (zero speed at
+//     ~34.6 PWM for A, ~33.5 for B). It is not a steady state reachable from
+//     rest - see the START KICK in motorFeedforwardPWM().
+//   - Static friction: from rest ~38-41 PWM starts the wheel (worst case B,
+//     + direction); once moving, ~35-37 PWM keeps it moving.
+//   - Unloaded numbers; the PI trims the difference on the floor. Motor B's
+//     response drifted ~6-9% while warming up; Motor A's did not (<1%).
+//   - A is ~2-5% faster than B at the same PWM, hence separate tables.
+const int    FF_N_A = 18;
+const double FF_SPEED_A[18] = {0.0, 15.5, 33.6, 52.5, 71.3, 90.6, 124.9, 171.3, 212.4, 252.6, 291.7, 329.5, 366.7, 403.7, 441.6, 484.4, 546.3, 618.6};
+const double FF_PWM_A[18]   = {34.6, 38, 42, 46, 50, 54, 65, 80, 95, 110, 125, 140, 155, 170, 185, 200, 215, 230};
 
-// Confirmed empirically for both motors - not currently used to gate any
-// logic below, just documented here as a reference value for future
-// tuning/sweep work (e.g. don't bother sweeping PWM points below this).
-double CONFIRMED_DEADBAND_PWM_MAX = 35.0;
+const int    FF_N_B = 18;
+const double FF_SPEED_B[18] = {0.0, 18.1, 36.7, 55.6, 74.0, 87.9, 119.7, 163.1, 203.1, 242.9, 281.9, 319.7, 357.2, 394.3, 431.7, 474.6, 533.2, 606.7};
+const double FF_PWM_B[18]   = {33.5, 38, 42, 46, 50, 54, 65, 80, 95, 110, 125, 140, 155, 170, 185, 200, 215, 230};
 
-// Feedforward is now per-motor: each MotorControl carries its own
-// ffSlope/ffOffset (set in setup() from the constants above), so a motor
-// with no characterization data yet simply gets zero feedforward instead
-// of inheriting another motor's fit.
+// Start-from-rest kick (see motorFeedforwardPWM): worst-case static start PWM,
+// "stopped" = measured speed under this, and only when a real speed is wanted.
+const double START_KICK_PWM = 41.0;
+const double START_KICK_BELOW_DEG_S = 5.0;
+const double START_KICK_MIN_CMD_DEG_S = 3.0;
+
+// |speed| (deg/s) -> |PWM| by linear interpolation; clamps outside the table.
+double ffInterp(const double *sp, const double *pw, int n, double v) {
+  if (v <= sp[0]) return pw[0];
+  if (v >= sp[n - 1]) return pw[n - 1];
+  int i = 1;
+  while (sp[i] < v) i++;
+  return pw[i - 1] + (pw[i] - pw[i - 1]) * (v - sp[i - 1]) / (sp[i] - sp[i - 1]);
+}
+
 double motorFeedforwardPWM(MotorControl &m, double speedDegS);
 
 // ---------------------------------------------------------------------
@@ -213,16 +231,36 @@ double motorFeedforwardPWM(MotorControl &m, double speedDegS);
 // ---------------------------------------------------------------------
 // MOTION LIMITS / PID DEFAULTS (tune to your robot's load/friction)
 // ---------------------------------------------------------------------
-double PROFILE_ACCEL_DEG_S2 = 60.0;   // accel/decel limit - also governs
-                                       // how fast direction can reverse
+double PROFILE_ACCEL_DEG_S2 = 600.0;   // speeding up (|v| growing). Was 60 for
+                                       // everything; the motors can do >5000 deg/s2
+                                       // unloaded, so this is set by what the robot
+                                       // (traction/current) tolerates - raise it on the floor.
+double PROFILE_DECEL_DEG_S2 = 1200.0;  // slowing down, stopping, reversing
 double POS_HOLD_DEADBAND_DEG = 0.5;
 double POS_HOLD_KP = 3.0;
+
+// Reversal interlock: no drive opposite to measured motion while |measured|
+// exceeds this (noise at the 50 ms window is <1 deg/s sd; 30 is a safe margin).
+const double REVERSE_SAFE_DEG_S = 30.0;
+// Integrator limit, in PWM counts of output (limit on the integral = this / Ki).
+const double INTEGRAL_MAX_PWM = 40.0;
+// Polarity/runaway guard: trips if |ramped target| > MIN_CMD and the wheel moves
+// the OTHER way faster than OPPOSE for (net) FAULT_TRIP_MS.
+const double FAULT_MIN_CMD_DEG_S = 10.0;
+const double FAULT_OPPOSE_DEG_S = 15.0;
+const double FAULT_TRIP_MS = 400.0;
 
 struct PIDGains {
   double kp, ki, kd;
 };
-PIDGains pidA = {2.5, 8.0, 0.02};
-PIDGains pidB = {2.5, 8.0, 0.02};
+// Retuned for the measured plant: ~2.5 deg/s per PWM, time constant ~20 ms,
+// ~75 ms measurement lag (50 ms window + alpha 0.5). Loop gain Kp*K must stay
+// well under ~1 for that lag, so Kp ~0.15 (gain ~0.4); Ki gives Ti ~0.3 s;
+// Kd = 0 (velocity is sampled every 50 ms, so a derivative only injects spikes).
+// The feedforward carries most of the output; the PI only trims. STARTING
+// VALUES - tune on the floor with K1/K2.
+PIDGains pidA = {0.15, 0.5, 0.0};
+PIDGains pidB = {0.15, 0.5, 0.0};
 
 // ---------------------------------------------------------------------
 // ENCODER STATE (full 4x quadrature decode via interrupts on both channels)
@@ -242,6 +280,16 @@ const int8_t QUAD_TABLE[16] = {
 void IRAM_ATTR encoderIsrA() {
   uint8_t s = (digitalRead(ENC_A_C1) << 1) | digitalRead(ENC_A_C2);
   uint8_t idx = (lastStateA << 2) | s;
+  // INVERTED (v4). Open-loop test on the current hardware: driving A's LPWM pin
+  // (which is what +command does - see setup()) made the NATIVE decode count
+  // DOWN (+80 PWM -> negative counts, -49..-171 deg/s measured). With the native
+  // sign, +command gave NEGATIVE measured velocity = positive feedback (runaway).
+  // Subtracting makes +command -> +counts, matching Motor B's convention.
+  // If you rewire A's encoder (or swap C1/C2), revisit this line - the FAULT
+  // guard in updateMotor() will trip within ~0.4 s if the sign is wrong.
+  // v4.1: driving A's RPWM (native, unswapped - see setup()) counts UP with the
+  // native decode, so no inversion. Both flips (channels + this) were made together:
+  // physical direction reversed, feedback sign preserved.
   encCountA += QUAD_TABLE[idx];
   lastStateA = s;
 }
@@ -280,7 +328,8 @@ struct MotorControl {
   // shared: accel-limited "commanded" velocity actually fed to the PID.
   // This is what guarantees no instant forward<->reverse jump, in BOTH modes.
   double rampedVelDegS = 0;
-  double accelDegS2 = 60.0;
+  double accelDegS2 = 600.0;   // speeding up (|v| growing)
+  double decelDegS2 = 1200.0;  // slowing down / stopping / reversing
 
   // PID state
   double integral = 0;
@@ -295,17 +344,32 @@ struct MotorControl {
   int rpwmChannel, lpwmChannel;
   double countsPerRev;
   PIDGains *gains;
-  double ffSlope = 0, ffOffset = 0; // per-motor feedforward - see FEEDFORWARD MODEL
+  const double *ffSpeed = nullptr;   // per-motor FF lookup table - see FEEDFORWARD MODEL
+  const double *ffPwm = nullptr;
+  int ffN = 0;
+
+  // polarity/runaway guard (see Step 5 in updateMotor)
+  bool fault = false;                // latched; cleared by the 'S' command
+  double badMs = 0;                  // accumulated "moving against command" time
 };
 
-// Defined here (not up by the FF_SLOPE_A/B constants) since it needs the
-// MotorControl type. Uses whichever ffSlope/ffOffset this motor was
-// configured with in setup() - Motor A currently has both at 0, so this
-// returns 0 for A until you characterize it.
+// Defined here (not up by the FF tables) since it needs the MotorControl type.
+// Looks up the measured |speed| -> |PWM| table for this motor, applies the
+// sign, and adds a START KICK: from rest the wheel needs ~38-41 PWM to break
+// static friction, but the table's low rows (34-37 PWM) only keep an
+// ALREADY-MOVING wheel going. So when a real speed is requested and the wheel
+// is (nearly) stopped, never output less than START_KICK_PWM.
+// Consequence (physical, not a bug): the slowest steady speed from rest is
+// ~15-19 deg/s (~0.01 m/s); commands below that stick-slip.
 double motorFeedforwardPWM(MotorControl &m, double speedDegS) {
-  if (fabs(speedDegS) < 0.01) return 0.0;
-  double sign = (speedDegS < 0) ? -1.0 : 1.0;
-  return sign * (m.ffSlope * fabs(speedDegS) + m.ffOffset);
+  double a = fabs(speedDegS);
+  if (a < 0.5 || m.ffN < 2) return 0.0;
+  double pwm = ffInterp(m.ffSpeed, m.ffPwm, m.ffN, a);
+  if (a > START_KICK_MIN_CMD_DEG_S && fabs(m.measuredVelDegS) < START_KICK_BELOW_DEG_S &&
+      pwm < START_KICK_PWM) {
+    pwm = START_KICK_PWM;
+  }
+  return (speedDegS < 0) ? -pwm : pwm;
 }
 
 MotorControl motA;
@@ -384,6 +448,7 @@ void motorHardStop(MotorControl &m) {
 
 // --- Core API: relative angle move at up to maxSpeedDegS (trapezoidal) ---
 void motorMoveRelative(MotorControl &m, volatile long &encCount, double angleDeg, double maxSpeedDegS) {
+  if (m.fault) return;   // latched polarity/runaway FAULT - cleared by 'S'
   m.startCount = encCount;
   m.targetCount = encCount + degToCounts(angleDeg, m.countsPerRev);
   double dist = fabs(angleDeg);
@@ -422,6 +487,7 @@ void motorMoveRelative(MotorControl &m, volatile long &encCount, double angleDeg
 // ramp in updateMotor() - this call just sets the *target*, it does not
 // jump the motor there.
 void motorSetVelocity(MotorControl &m, double velDegS) {
+  if (m.fault) return;   // latched polarity/runaway FAULT - cleared by 'S'
   m.mode = MODE_VELOCITY;
   m.holding = false;
   m.velocityTargetDegS = velDegS;
@@ -496,7 +562,9 @@ void updateMotor(MotorControl &m, volatile long &encCount) {
   if (velDt >= 50) {
     double degMoved = countsToDeg(currentCount - m.lastCount, m.countsPerRev);
     double rawVel = degMoved / (velDt / 1000.0);
-    const double VEL_FILTER_ALPHA = 0.3; // lower = smoother but laggier
+    // Measured (T5): noise at this window is <1 deg/s sd, so a light filter is
+    // enough; 0.5 halves the added lag vs 0.3 (~50 ms vs ~117 ms).
+    const double VEL_FILTER_ALPHA = 0.5; // lower = smoother but laggier
     m.measuredVelDegS = VEL_FILTER_ALPHA * rawVel + (1.0 - VEL_FILTER_ALPHA) * m.measuredVelDegS;
     m.lastCount = currentCount;
     m.lastVelMs = now;
@@ -537,28 +605,61 @@ void updateMotor(MotorControl &m, volatile long &encCount) {
     }
   }
 
-  // ---- Step 2: accel-limited ramp toward wantedVel. This is what
-  // guarantees the motor never jumps from +speed to -speed in one step,
-  // in POSITION mode (profile already does this internally) AND in
-  // VELOCITY mode AND on stop/direction-reversal. ----
-  double maxDelta = m.accelDegS2 * dt;
+  // ---- Step 2: slew-limited ramp toward wantedVel. This is what guarantees
+  // the motor never jumps from +speed to -speed in one step, in POSITION mode,
+  // VELOCITY mode, and on stop/direction-reversal. Speeding up (same direction,
+  // magnitude growing) uses accelDegS2; slowing down, stopping or reversing
+  // uses decelDegS2. The ramp always passes THROUGH zero gradually. ----
+  bool speedingUp = (fabs(wantedVel) > fabs(m.rampedVelDegS)) && (wantedVel * m.rampedVelDegS >= 0);
+  double maxDelta = (speedingUp ? m.accelDegS2 : m.decelDegS2) * dt;
   double diff = wantedVel - m.rampedVelDegS;
-  if (fabs(diff) <= maxDelta) {
-    m.rampedVelDegS = wantedVel;
-  } else {
-    m.rampedVelDegS += (diff > 0 ? maxDelta : -maxDelta);
-  }
+  double nextRamp = (fabs(diff) <= maxDelta) ? wantedVel : m.rampedVelDegS + (diff > 0 ? maxDelta : -maxDelta);
+  if (m.rampedVelDegS * nextRamp < 0) nextRamp = 0.0;   // never skip across zero in one tick
+  m.rampedVelDegS = nextRamp;
 
-  // ---- Step 3: velocity PID tracking the ramped target ----
+  // ---- Step 3: velocity PI(D) tracking the ramped target, plus feedforward ----
   double velError = m.rampedVelDegS - m.measuredVelDegS;
+  // Integrator limited to +-INTEGRAL_MAX_PWM worth of output (the old fixed
+  // +-150 deg*s allowed ~1200 PWM at Ki=8, i.e. no limit at all).
+  double iLimit = (m.gains->ki > 1e-6) ? (INTEGRAL_MAX_PWM / m.gains->ki) : 0.0;
   m.integral += velError * dt;
-  m.integral = constrain(m.integral, -150, 150);
+  m.integral = constrain(m.integral, -iLimit, iLimit);
   double deriv = (dt > 0) ? (velError - m.lastError) / dt : 0;
   m.lastError = velError;
 
   double output = m.gains->kp * velError + m.gains->ki * m.integral + m.gains->kd * deriv;
   double ff = motorFeedforwardPWM(m, m.rampedVelDegS); // see FEEDFORWARD MODEL above
   output += ff;
+
+  // ---- Step 4: reversal interlock. Never drive OPPOSITE to the wheel's
+  // measured motion while it is still moving: that is plugging (back-EMF adds
+  // to the supply -> stall-level current in the BTS7960). PWM 0 with both
+  // enables high is a dynamic brake (both low sides on), which stops the wheel
+  // in ~50-65 ms unloaded - so we brake first and reverse once it has slowed. ----
+  if (fabs(m.measuredVelDegS) > REVERSE_SAFE_DEG_S && output * m.measuredVelDegS < 0) {
+    output = 0.0;
+    m.integral = 0.0;
+  }
+
+  // ---- Step 5: polarity / runaway guard. If the wheel keeps moving AGAINST
+  // the ramped target (wrong encoder or motor polarity = positive feedback),
+  // stop and latch a FAULT instead of chattering. A normal reversal only
+  // opposes for a few tens of ms, far below FAULT_TRIP_MS. ----
+  bool opposing = fabs(m.rampedVelDegS) > FAULT_MIN_CMD_DEG_S &&
+                  fabs(m.measuredVelDegS) > FAULT_OPPOSE_DEG_S &&
+                  m.rampedVelDegS * m.measuredVelDegS < 0;
+  if (opposing) {
+    m.badMs += dt * 1000.0;
+  } else {
+    m.badMs -= dt * 500.0;
+    if (m.badMs < 0) m.badMs = 0;
+  }
+  if (m.badMs > FAULT_TRIP_MS) {
+    motorHardStop(m);
+    m.fault = true;
+    m.badMs = 0;
+    return;
+  }
 
   applyMotorPWM(m, output);
 }
@@ -583,7 +684,7 @@ void printHelp() {
   Serial.println(F("  VV <speed_deg_s>               both motors continuous velocity"));
   Serial.println(F("  S                              ramped stop, both motors"));
   Serial.println(F("  Z                              zero encoders"));
-  Serial.println(F("  A <deg_s2>                     set accel/decel limit"));
+  Serial.println(F("  A <accel> [<decel>]             set speed-up / slow-down limits (deg/s2)"));
   Serial.println(F("  K1 <Kp> <Ki> <Kd>               motor A PID gains"));
   Serial.println(F("  K2 <Kp> <Ki> <Kd>               motor B PID gains"));
   Serial.println(F("  C                              toggle raw count stream (calibration)"));
@@ -655,6 +756,8 @@ void handleCommand(String line) {
     Serial.print(cmd); Serial.print(F(": target velocity ")); Serial.print(v); Serial.println(F(" deg/s (ramped)"));
 
   } else if (cmd == "S") {
+    motA.fault = false; motB.fault = false;   // 'S' also clears a latched FAULT
+    motA.badMs = 0;     motB.badMs = 0;
     motorStop(motA);
     motorStop(motB);
     Serial.println(F("Ramped stop issued to both motors"));
@@ -663,12 +766,15 @@ void handleCommand(String line) {
     motorZero(encCountB, motB);
     Serial.println(F("Encoders zeroed"));
   } else if (cmd == "A") {
-    double a = line.substring(sp1 + 1).toDouble();
-    if (a > 0) {
-      motA.accelDegS2 = a;
-      motB.accelDegS2 = a;
-      Serial.print(F("Accel set to ")); Serial.println(a);
-    }
+    String rest = (sp1 == -1) ? String("") : line.substring(sp1 + 1);
+    rest.trim();
+    int s2 = rest.indexOf(' ');
+    double a = rest.toDouble();
+    double d = (s2 == -1) ? 0.0 : rest.substring(s2 + 1).toDouble();
+    if (a > 0) { motA.accelDegS2 = a; motB.accelDegS2 = a; }
+    if (d > 0) { motA.decelDegS2 = d; motB.decelDegS2 = d; }
+    Serial.print(F("Accel ")); Serial.print(motA.accelDegS2);
+    Serial.print(F("  Decel ")); Serial.println(motA.decelDegS2);
   } else if (cmd == "K1" || cmd == "K2") {
     String rest = line.substring(sp1 + 1);
     rest.trim();
@@ -711,6 +817,22 @@ void pollSerial() {
   }
 }
 
+// Reports a latched polarity/runaway FAULT once per trip. Lives here (transport
+// layer) so the core API above stays free of Serial calls.
+bool faultReportedA = false, faultReportedB = false;
+void reportFaults() {
+  if (motA.fault && !faultReportedA) {
+    Serial.println(F("FAULT A: wheel moving against its command (encoder/motor polarity?) - motor stopped, send S to clear"));
+    faultReportedA = true;
+  }
+  if (!motA.fault) faultReportedA = false;
+  if (motB.fault && !faultReportedB) {
+    Serial.println(F("FAULT B: wheel moving against its command (encoder/motor polarity?) - motor stopped, send S to clear"));
+    faultReportedB = true;
+  }
+  if (!motB.fault) faultReportedB = false;
+}
+
 // ---------------------------------------------------------------------
 // SETUP
 // ---------------------------------------------------------------------
@@ -745,13 +867,15 @@ void setup() {
   // pin names - see the long comment in PIN DEFINITIONS. This makes
   // applyMotorPWM()'s "pwmSigned >= 0" branch physically drive LPWM
   // (CH_A_LPWM) for Motor A, so +command -> LPWM -> clockwise -> +counts.
-  motA.rpwmChannel = CH_A_LPWM;
-  motA.lpwmChannel = CH_A_RPWM;
+  // v4.1: NATIVE mapping. Bench: with the swapped mapping +command drove the robot
+  // backwards; +command now drives RPWM (opposite physical direction).
+  motA.rpwmChannel = CH_A_RPWM;
+  motA.lpwmChannel = CH_A_LPWM;
   motA.countsPerRev = COUNTS_PER_REV_A;
   motA.accelDegS2 = PROFILE_ACCEL_DEG_S2;
-  motA.gains = &pidA;      // inherited from Motor B's tuning - NOT validated for A
-  motA.ffSlope = FF_SLOPE_A;   // 0 - not characterized yet
-  motA.ffOffset = FF_OFFSET_A; // 0 - not characterized yet
+  motA.decelDegS2 = PROFILE_DECEL_DEG_S2;
+  motA.gains = &pidA;
+  motA.ffSpeed = FF_SPEED_A;  motA.ffPwm = FF_PWM_A;  motA.ffN = FF_N_A;
 
   // Motor B: back to NATIVE (unswapped) channel mapping - combined with
   // the re-inverted encoderIsrB above, this makes +command -> RPWM ->
@@ -764,9 +888,9 @@ void setup() {
   motB.lpwmChannel = CH_B_LPWM;
   motB.countsPerRev = COUNTS_PER_REV_B;
   motB.accelDegS2 = PROFILE_ACCEL_DEG_S2;
+  motB.decelDegS2 = PROFILE_DECEL_DEG_S2;
   motB.gains = &pidB;
-  motB.ffSlope = FF_SLOPE_B;
-  motB.ffOffset = FF_OFFSET_B;
+  motB.ffSpeed = FF_SPEED_B;  motB.ffPwm = FF_PWM_B;  motB.ffN = FF_N_B;
 
   motorHardStop(motA);
   motorHardStop(motB);
@@ -806,6 +930,7 @@ void loop() {
 
   updateMotor(motA, encCountA);
   updateMotor(motB, encCountB);
+  reportFaults();
 
   bool active = (motA.mode != MODE_IDLE) || (motB.mode != MODE_IDLE);
   if (active && millis() - lastTelemetryMs >= 150) {
