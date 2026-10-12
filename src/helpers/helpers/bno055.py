@@ -7,6 +7,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Quaternion, Vector3
 from std_msgs.msg import Float64
+import numpy as np
 from scipy.spatial.transform import Rotation as R
 import smbus2
 
@@ -25,6 +26,41 @@ OPERATION_MODE_IMUPLUS = 0x08  # Accel + Gyro fusion, magnetometer OFF (relative
 # Units: bit1 = 1 -> gyro in rad/s. Everything else default
 # (accel m/s^2, Euler degrees, Celsius, Windows orientation convention).
 UNIT_SEL_GYRO_RADS = 0x02
+
+# ---------------------------------------------------------------------------
+# Mounting: IMU frame -> robot body frame (REP-103 FLU: x fwd, y left, z up).
+# The board is mounted inverted, with (verified physically):
+#   IMU -Y = robot forward   -> robot_x = -imu_y
+#   IMU +X = robot right     -> robot_y = -imu_x   (left = -right)
+#   IMU -Z = up              -> robot_z = -imu_z
+# so  v_robot = MOUNT_MATRIX @ v_imu.  det(M) = +1 (proper rotation, not a
+# mirror): it is a 180 deg turn about the axis (1, -1, 0)/sqrt(2).  M is
+# symmetric and its own inverse (M @ M = I).
+#
+# Vectors (gyro, accel):  v_robot = M @ v_imu
+# Orientation: the chip reports q_ws = pose of the SENSOR frame in the world
+# frame (v_world = q_ws * v_sensor).  The robot frame is v_robot = M v_sensor,
+# so v_world = q_ws * M^-1 * v_robot  ->  q_wr = q_ws * M^-1 = q_ws * M.
+# i.e. the mounting rotation is POST-multiplied (rotating the body frame),
+# never pre-multiplied (that would rotate the world frame and negate yaw).
+# imu_link in the URDF is identity w.r.t. base_link, so this is the only
+# place the mounting correction is applied -- do not add it to the URDF/TF.
+MOUNT_MATRIX = np.array([[0.0, -1.0, 0.0],
+                         [-1.0, 0.0, 0.0],
+                         [0.0, 0.0, -1.0]])
+assert abs(np.linalg.det(MOUNT_MATRIX) - 1.0) < 1e-12
+assert np.allclose(MOUNT_MATRIX @ MOUNT_MATRIX.T, np.eye(3))
+
+
+def mount_vector(v_imu):
+    """IMU-frame vector (gyro / accel) -> robot FLU vector."""
+    return MOUNT_MATRIX @ np.asarray(v_imu, dtype=float)
+
+
+def mount_orientation(q_sensor):
+    """Sensor-in-world rotation -> robot-body-in-world rotation (post-multiply)."""
+    return q_sensor * R.from_matrix(MOUNT_MATRIX)
+
 
 # Burst read: 26 contiguous bytes starting at the gyro data registers.
 BNO055_BURST_START = 0x14
@@ -71,13 +107,6 @@ class BNO055Node(Node):
             self.yaw_pub = self.create_publisher(Float64, 'bno/yaw', 10)
             self.gyro_pub = self.create_publisher(Vector3, 'bno/gyro', 10)
             self.accel_pub = self.create_publisher(Vector3, 'bno/accel', 10)
-
-        # Compute fixed orientation mounting transformation matrix
-        # Mounting condition: Inverted (180 deg around X-axis) + Clockwise 180 deg around Z-axis
-        r_x_inv = R.from_euler('x', -180, degrees=True)
-        r_z_cw = R.from_euler('z', -180, degrees=True)
-        # Combined mounting rotation matrix (Sensor to Link transform)
-        self.R_mount = r_z_cw * r_x_inv
 
         # Initialize Hardware
         if not self.init_bno055():
@@ -207,13 +236,13 @@ class BNO055Node(Node):
             # -------------------------------------------------------------
             # Apply Frame Transformation (Sensor Frame -> Mounted imu_link)
             # -------------------------------------------------------------
-            # Transformed Orientation Quaternion
-            q_link = self.R_mount * q_sensor
+            # Orientation: robot body in world (post-multiplied mounting rotation)
+            q_link = mount_orientation(q_sensor)
             qx, qy, qz, qw = q_link.as_quat()
 
-            # Transformed Vector Quantities (Angular Velocity and Linear Accel)
-            gyro_link = self.R_mount.apply(gyro_sensor)
-            accel_link = self.R_mount.apply(accel_sensor)
+            # Vector quantities: v_robot = MOUNT_MATRIX @ v_imu
+            gyro_link = mount_vector(gyro_sensor)
+            accel_link = mount_vector(accel_sensor)
 
             # Low-pass filter the linear acceleration only -- gyro and
             # orientation come from BNO055's own onboard fusion filter
