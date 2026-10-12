@@ -18,14 +18,23 @@ ekf_filter_node:
                     false, false, false,
                     false,  false, false]
 
+      # BNO055 runs in IMUPLUS (no magnetometer): yaw is relative to node start.
+      # relative: true makes the first IMU yaw the zero reference, so an EKF
+      # restart while the IMU keeps running doesn't inject a heading jump.
+      imu0_relative: true
       imu0_differential: false
       imu0_pose_use_child_frame: false
 
       odom0: /odometry
-      odom0_config: [true, true, false,
+      # Fuse wheel VELOCITIES only (vx, vyaw). Wheel x/y are integrated by
+      # relay.py along the wheel-derived heading, which is a different yaw than
+      # the IMU yaw fused above; fusing both x/y and IMU yaw gives a pose whose
+      # travel direction disagrees with its heading. With velocities, the EKF
+      # integrates position along its own (IMU-corrected) yaw.
+      odom0_config: [false, false, false,
                      false, false, false,
                      true,  false,  false,
-                     false, false, false,
+                     false, false, true,
                      false, false, false]
 
       odom0_differential: false
