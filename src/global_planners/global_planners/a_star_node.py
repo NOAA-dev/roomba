@@ -243,7 +243,7 @@ class AStarNode(Node):
 
             self.closed_set_.add(current_key)
             expansions += 1
-            if expansions >= 100000000:
+            if expansions >= 10000:
                 break
 
             dist_to_goal = math.hypot(current.x - goal[0], current.y - goal[1])
