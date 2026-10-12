@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
 import struct
-import math
+import time
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Quaternion, Vector3
+from std_msgs.msg import Float64
 from scipy.spatial.transform import Rotation as R
 import smbus2
 
@@ -19,12 +20,24 @@ BNO055_UNIT_SEL_REG = 0x3B
 
 # Operation Modes
 OPERATION_MODE_CONFIG = 0x00
-OPERATION_MODE_NDOF = 0x0C    # 9DoF Sensor Fusion mode
+OPERATION_MODE_IMUPLUS = 0x08  # Accel + Gyro fusion, magnetometer OFF (relative yaw)
 
-# Register Data Addresses
-BNO055_GYRO_DATA_X_LSB = 0x14  # 6 bytes
-BNO055_QUATERNION_DATA_W_LSB = 0x20  # 8 bytes
-BNO055_LINEAR_ACCEL_DATA_X_LSB = 0x28  # 6 bytes (Gravity removed fused accel)
+# Units: bit1 = 1 -> gyro in rad/s. Everything else default
+# (accel m/s^2, Euler degrees, Celsius, Windows orientation convention).
+UNIT_SEL_GYRO_RADS = 0x02
+
+# Burst read: 26 contiguous bytes starting at the gyro data registers.
+BNO055_BURST_START = 0x14
+BNO055_BURST_LEN = 26
+#   offset  0..5   gyro X/Y/Z        (int16 LE)
+#   offset  6..11  Euler H/R/P       (unused here)
+#   offset 12..19  quaternion W/X/Y/Z (int16 LE)
+#   offset 20..25  linear accel X/Y/Z (int16 LE, gravity removed)
+
+# Scale factors for the unit configuration above
+SCALE_QUAT = 1.0 / 16384.0   # 16384 LSB = 1 (unit quaternion)
+SCALE_GYRO = 1.0 / 900.0     # 900 LSB = 1 rad/s
+SCALE_ACCEL = 1.0 / 100.0    # 100 LSB = 1 m/s^2
 
 
 class BNO055Node(Node):
@@ -37,12 +50,14 @@ class BNO055Node(Node):
         self.declare_parameter('frame_id', 'imu_link')
         self.declare_parameter('publish_rate', 50.0)  # 50 Hz
         self.declare_parameter('accel_filter_alpha', 0.2)  # EMA smoothing factor, 0-1
+        self.declare_parameter('publish_debug', False)  # bno/yaw, bno/gyro, bno/accel
 
         self.bus_num = self.get_parameter('i2c_bus').value
         self.addr = self.get_parameter('i2c_address').value
         self.frame_id = self.get_parameter('frame_id').value
         pub_rate = self.get_parameter('publish_rate').value
         self.accel_alpha = self.get_parameter('accel_filter_alpha').value
+        self.publish_debug = self.get_parameter('publish_debug').value
 
         # Exponential-moving-average state for linear acceleration, applied
         # after mounting-rotation so it's smoothing in the published (imu_link)
@@ -50,8 +65,12 @@ class BNO055Node(Node):
         # toward a bogus zero on startup.
         self._filtered_accel = None
 
-        # Publisher setup
+        # Publishers
         self.publisher_ = self.create_publisher(Imu, '/imu', 10)
+        if self.publish_debug:
+            self.yaw_pub = self.create_publisher(Float64, 'bno/yaw', 10)
+            self.gyro_pub = self.create_publisher(Vector3, 'bno/gyro', 10)
+            self.accel_pub = self.create_publisher(Vector3, 'bno/accel', 10)
 
         # Compute fixed orientation mounting transformation matrix
         # Mounting condition: Inverted (180 deg around X-axis) + Clockwise 180 deg around Z-axis
@@ -61,44 +80,87 @@ class BNO055Node(Node):
         self.R_mount = r_z_cw * r_x_inv
 
         # Initialize Hardware
-        self.init_bno055()
+        if not self.init_bno055():
+            self.get_logger().error(
+                'BNO055 initialization failed -- not publishing. '
+                'Check wiring / I2C address / bus number and restart the node.'
+            )
+            return
 
         # Timer setup (50 Hz -> 0.02s period)
         timer_period = 1.0 / pub_rate
         self.timer = self.create_timer(timer_period, self.publish_imu)
         self.get_logger().info(
-            f'BNO055 Node initialized. Publishing on /imu at {pub_rate} Hz '
+            f'BNO055 Node initialized (IMUPLUS mode, no magnetometer). '
+            f'Publishing on /imu at {pub_rate} Hz '
             f'(accel EMA alpha={self.accel_alpha}).'
+        )
+        self.get_logger().info(
+            'Yaw is relative to the heading at startup and will drift slowly. '
+            'Keep the robot still for 1-2 s after launch so the gyro can settle.'
         )
 
     def init_bno055(self):
-        """Initializes BNO055 into NDOF fusion mode via smbus2."""
+        """Resets the BNO055 and configures IMUPLUS fusion mode (accel + gyro only).
+
+        Returns True only if the chip answered and the mode readback matches.
+        """
         try:
             self.bus = smbus2.SMBus(self.bus_num)
 
-            # Check Chip ID (Should be 0xA0)
-            chip_id = self.bus.read_byte_data(self.addr, BNO055_CHIP_ID_REG)
-            if chip_id != 0xA0:
-                self.get_logger().error(f'Failed to find BNO055! Expected 0xA0, got {hex(chip_id)}')
-                return
-
-            # Switch to CONFIG mode to configure settings
+            # Go to CONFIG mode, then trigger a full system reset so we start
+            # from a known state on every node restart.
             self.bus.write_byte_data(self.addr, BNO055_OPR_MODE_REG, OPERATION_MODE_CONFIG)
-            rclpy.spin_once(self, timeout_sec=0.05)
+            time.sleep(0.025)  # any mode -> CONFIG takes up to 19 ms
+            try:
+                self.bus.write_byte_data(self.addr, BNO055_SYS_TRIGGER_REG, 0x20)
+            except OSError:
+                pass  # chip may NACK while it starts resetting; the poll below confirms
 
-            # Reset System & set normal power mode
+            # Poll the chip ID until the chip is back (reset takes ~650 ms).
+            time.sleep(0.4)
+            chip_ok = False
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                try:
+                    if self.bus.read_byte_data(self.addr, BNO055_CHIP_ID_REG) == 0xA0:
+                        chip_ok = True
+                        break
+                except OSError:
+                    pass
+                time.sleep(0.05)
+            if not chip_ok:
+                self.get_logger().error('BNO055 did not respond (expected chip ID 0xA0) after reset.')
+                return False
+            time.sleep(0.05)
+
+            # Normal power mode (must be written while in CONFIG mode)
             self.bus.write_byte_data(self.addr, BNO055_PWR_MODE_REG, 0x00)
+            time.sleep(0.01)
 
-            # Configure Units: Android orientation, Celsius, Degrees, dps, m/s^2
-            self.bus.write_byte_data(self.addr, BNO055_UNIT_SEL_REG, 0x00)
+            # Units: gyro rad/s, accel m/s^2, Euler degrees, Windows orientation
+            self.bus.write_byte_data(self.addr, BNO055_UNIT_SEL_REG, UNIT_SEL_GYRO_RADS)
+            time.sleep(0.01)
 
-            # Switch to NDOF (Nine Degrees of Freedom) Fused Mode
-            self.bus.write_byte_data(self.addr, BNO055_OPR_MODE_REG, OPERATION_MODE_NDOF)
-            rclpy.spin_once(self, timeout_sec=0.05)
+            # Switch to IMUPLUS (accel + gyro fusion, magnetometer disabled)
+            self.bus.write_byte_data(self.addr, BNO055_OPR_MODE_REG, OPERATION_MODE_IMUPLUS)
+            time.sleep(0.020)  # CONFIG -> any mode takes up to 7 ms
 
-            self.get_logger().info('BNO055 successfully configured in NDOF mode.')
+            # Read the mode back and confirm it took
+            for _ in range(10):
+                mode = self.bus.read_byte_data(self.addr, BNO055_OPR_MODE_REG) & 0x0F
+                if mode == OPERATION_MODE_IMUPLUS:
+                    self.get_logger().info('BNO055 confirmed in IMUPLUS mode.')
+                    return True
+                time.sleep(0.05)
+
+            self.get_logger().error(
+                f'BNO055 mode readback mismatch: expected {hex(OPERATION_MODE_IMUPLUS)}, got {hex(mode)}.'
+            )
+            return False
         except Exception as e:
             self.get_logger().error(f'I2C Communication Error during initialization: {e}')
+            return False
 
     def _apply_accel_filter(self, accel_link):
         """Exponential moving average low-pass filter on linear acceleration.
@@ -122,27 +184,25 @@ class BNO055Node(Node):
 
     def publish_imu(self):
         try:
-            # 1. Read Fused Quaternion (8 bytes: W, X, Y, Z)
-            quat_bytes = self.bus.read_i2c_block_data(self.addr, BNO055_QUATERNION_DATA_W_LSB, 8)
-            w_raw, x_raw, y_raw, z_raw = struct.unpack('<hhhh', bytes(quat_bytes))
-            
-            # 1 LSB = 1/16384
-            scale_q = 1.0 / 16384.0
-            q_sensor = R.from_quat([x_raw * scale_q, y_raw * scale_q, z_raw * scale_q, w_raw * scale_q])
+            # One burst read: gyro, Euler, quaternion and linear accel all
+            # come from the same fusion cycle in a single I2C transaction.
+            raw = bytes(self.bus.read_i2c_block_data(
+                self.addr, BNO055_BURST_START, BNO055_BURST_LEN))
+            if len(raw) < BNO055_BURST_LEN:
+                return  # drop incomplete frame
 
-            # 2. Read Fused Angular Velocity / Gyro (6 bytes: X, Y, Z)
-            gyro_bytes = self.bus.read_i2c_block_data(self.addr, BNO055_GYRO_DATA_X_LSB, 6)
-            gx_raw, gy_raw, gz_raw = struct.unpack('<hhh', bytes(gyro_bytes))
-            # 1 LSB = 16 dps -> convert to rad/s
-            scale_g = (1.0 / 16.0) * (math.pi / 180.0)
-            gyro_sensor = [gx_raw * scale_g, gy_raw * scale_g, gz_raw * scale_g]
+            # Gyro (rad/s, sensor frame)
+            gx_raw, gy_raw, gz_raw = struct.unpack('<hhh', raw[0:6])
+            gyro_sensor = [gx_raw * SCALE_GYRO, gy_raw * SCALE_GYRO, gz_raw * SCALE_GYRO]
 
-            # 3. Read Fused Linear Acceleration (Gravity removed) (6 bytes: X, Y, Z)
-            accel_bytes = self.bus.read_i2c_block_data(self.addr, BNO055_LINEAR_ACCEL_DATA_X_LSB, 6)
-            ax_raw, ay_raw, az_raw = struct.unpack('<hhh', bytes(accel_bytes))
-            # 1 LSB = 100 LSB / (m/s^2)
-            scale_a = 1.0 / 100.0
-            accel_sensor = [ax_raw * scale_a, ay_raw * scale_a, az_raw * scale_a]
+            # Fused quaternion (W, X, Y, Z order on the chip)
+            w_raw, x_raw, y_raw, z_raw = struct.unpack('<hhhh', raw[12:20])
+            q_sensor = R.from_quat([x_raw * SCALE_QUAT, y_raw * SCALE_QUAT,
+                                    z_raw * SCALE_QUAT, w_raw * SCALE_QUAT])
+
+            # Fused linear acceleration, gravity removed (m/s^2, sensor frame)
+            ax_raw, ay_raw, az_raw = struct.unpack('<hhh', raw[20:26])
+            accel_sensor = [ax_raw * SCALE_ACCEL, ay_raw * SCALE_ACCEL, az_raw * SCALE_ACCEL]
 
             # -------------------------------------------------------------
             # Apply Frame Transformation (Sensor Frame -> Mounted imu_link)
@@ -170,14 +230,25 @@ class BNO055Node(Node):
             msg.linear_acceleration = Vector3(x=accel_filtered[0], y=accel_filtered[1], z=accel_filtered[2])
 
             # Set orientation & sensor covariance (-1 if unknown / not calculated)
-            msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
+            # Yaw variance is higher than roll/pitch: without the magnetometer,
+            # yaw has no absolute reference and drifts slowly.
+            msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.05]
             msg.angular_velocity_covariance = [0.001, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0, 0.001]
             msg.linear_acceleration_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
 
             self.publisher_.publish(msg)
 
+            if self.publish_debug:
+                # Yaw in degrees, taken from the published (imu_link) orientation
+                # so it matches /imu rather than the raw sensor frame.
+                yaw_deg = q_link.as_euler('zyx', degrees=True)[0]
+                self.yaw_pub.publish(Float64(data=float(yaw_deg)))
+                self.gyro_pub.publish(Vector3(x=gyro_link[0], y=gyro_link[1], z=gyro_link[2]))
+                self.accel_pub.publish(Vector3(x=accel_filtered[0], y=accel_filtered[1], z=accel_filtered[2]))
+
         except Exception as e:
-            self.get_logger().warn(f'Failed to read or publish IMU data: {e}')
+            self.get_logger().warn(
+                f'Failed to read or publish IMU data: {e}', throttle_duration_sec=5.0)
 
 
 def main(args=None):
