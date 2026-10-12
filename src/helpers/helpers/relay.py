@@ -36,6 +36,20 @@ class CMDRelayNode(Node):
         self.odom_msg = Odometry()
         self.odom_msg.header.frame_id = "odom"
         self.odom_msg.child_frame_id = "roomba"
+        # Covariances (diag, 6x6 row-major). Without these robot_localization
+        # treats the wheel odometry as (near-)perfect. Values are initial
+        # estimates -- tune from logged straight-line / spin tests.
+        pc = [0.0] * 36
+        tc = [0.0] * 36
+        pc[0] = pc[7] = 0.01                 # x, y   [m^2]
+        pc[14] = pc[21] = pc[28] = 1e6       # z, roll, pitch: unobserved (planar)
+        pc[35] = 0.05                        # yaw    [rad^2]
+        tc[0] = 0.002                        # vx     [(m/s)^2]
+        tc[7] = 1e6                          # vy: not observed (diff drive)
+        tc[14] = tc[21] = tc[28] = 1e6
+        tc[35] = 0.02                        # vyaw   [(rad/s)^2]
+        self.odom_msg.pose.covariance = pc
+        self.odom_msg.twist.covariance = tc
 
         self.joy_subscriber_ = self.create_subscription(Twist,"/cmd_vel_unstamped",self.genrate_cmd_vel,10)
         self.joy_in_subscriber_ = self.create_subscription(TwistStamped,"/joystick_input/stamped",self.joy_in_callback,10)
@@ -120,6 +134,8 @@ class CMDRelayNode(Node):
         self.prev_rightwheel_pose_ = right_wheel_pose
         self.prev_leftwheel_pose_ = left_wheel_pose
 
+        # Pose: integrate wheel-position deltas. Exact regardless of how often
+        # the ESP32 telemetry (~150 ms) refreshes /joint_states (100 Hz).
         linear_velocity = (self.R_ * (delta_right_wheel + delta_left_wheel) / 2.0) / dt
         angular_velocity = (self.R_ * (delta_right_wheel - delta_left_wheel) / self.L_) / dt
         delta_theta = angular_velocity * dt
@@ -129,8 +145,17 @@ class CMDRelayNode(Node):
         self.theta += angular_velocity * dt
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
 
-        self.v = linear_velocity
-        self.w = angular_velocity
+        # Published twist: differencing positions per 10 ms message is zero for
+        # ~14 messages then spikes ~15x when a telemetry line lands. Use the
+        # firmware-reported wheel velocities (rad/s) when available instead.
+        if len(msg.velocity) > max(idx_l, idx_r):
+            vl = msg.velocity[idx_l]
+            vr = msg.velocity[idx_r]
+            self.v = self.R_ * (vr + vl) / 2.0
+            self.w = self.R_ * (vr - vl) / self.L_
+        else:
+            self.v = linear_velocity
+            self.w = angular_velocity
 
 
 
