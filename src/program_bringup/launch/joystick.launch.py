@@ -58,7 +58,10 @@ def generate_launch_description():
         executable="cmd_relay",
         name="cmd_relay",
         output="screen",
-        parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        parameters=[
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            os.path.join(program_bringup_pkg, "config", "robot_dimensions.yaml"),
+        ],
     )
 
     return LaunchDescription([
