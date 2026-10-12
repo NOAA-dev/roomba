@@ -38,11 +38,11 @@
         diameter_m: 0.07               # [MEASURED] must equal 2 * radius_m (checked by test)
         width_m: 0.02                  # [MEASURED]
         track_width_m: 0.24            # [MEASURED] wheel centre to wheel centre (NOT the footprint width)
-        axle_x_m: -0.05                # [LEGACY] axle position along X relative to base_link
+        axle_x_m: 0.0               # [LEGACY] axle position along X relative to base_link
       caster:
         radius_m: 0.0175               # [MEASURED]
         diameter_m: 0.035              # [MEASURED] must equal 2 * radius_m (checked by test)
-        x_m: 0.10                      # [LEGACY] caster position along X relative to base_link
+        x_m: -0.10                      # [LEGACY] caster position along X relative to base_link
       imu:                             # position of imu_link relative to base_link
         x_m: -0.08                     # [MEASURED] 8 cm toward the rear
         y_m: 0.0                       # assumed centred (only "toward the rear" was measured)

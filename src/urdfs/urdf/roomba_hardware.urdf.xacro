@@ -20,8 +20,6 @@
         serial_port="$(arg serial_port)"
         baud_rate="$(arg baud_rate)" />
 
-    <!-- footprint / wheel / caster / body dimensions: see dimensions.xacro
-         (generated from program_bringup/config/robot_dimensions.yaml) -->
     
     <link name="roomba">
     </link>
