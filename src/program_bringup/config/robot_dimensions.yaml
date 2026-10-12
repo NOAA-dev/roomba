@@ -1,0 +1,51 @@
+# =============================================================================
+# Robot geometry -- SINGLE SOURCE OF TRUTH
+# =============================================================================
+# Every physical dimension used by the URDF/Xacro, odometry (relay.py), the
+# A* planner and the Gazebo diff-drive plugin comes from this file. Do not
+# hardcode these numbers anywhere else.
+#
+# Consumers
+#   * Xacro (urdfs/urdf/dimensions.xacro): xacro.load_yaml() on this file; the
+#     launch files pass its path as  robot_dimensions_path:=...
+#   * ROS nodes (cmd_relay, a_star): loaded with <param from="..."/> / a launch
+#     parameters list. The `/**` wildcard makes it apply to any node name.
+#
+# Conventions
+#   * SI units only: metres (_m). Names carry their unit.
+#   * REP-103: +X forward, +Y left, +Z up.
+#   * base_link origin = robot (footprint) centre, at drive-wheel-centre height.
+#     Ground is at z = -drive_wheel.radius_m in base_link.
+#     The `roomba` link is the ground-level parent (spine joint).
+#   * The IMU mounting-axis correction ([-y, -x, -z] vector map, post-multiplied
+#     quaternion) lives ONLY in helpers/bno055.py. imu_link is axis-aligned
+#     with base_link (rpy = 0), so only the IMU *position* is set here.
+#
+# Entries marked [MEASURED] come from the confirmed physical measurements.
+# Entries marked [LEGACY]  were carried over unchanged from the previous
+# model and have NOT been re-measured -- verify them on the robot.
+/**:
+  ros__parameters:
+    robot:
+      footprint:                       # body outline seen from above
+        length_m: 0.20                 # [MEASURED] along X
+        width_m: 0.20                  # [MEASURED] along Y
+      body:
+        top_above_wheel_center_m: 0.20     # [MEASURED] robot height above the drive-wheel centre
+        bottom_above_wheel_center_m: -0.015   # [LEGACY] body underside (old model value); only affects sim visual/collision/inertia
+      drive_wheel:
+        radius_m: 0.035                # [MEASURED]
+        diameter_m: 0.07               # [MEASURED] must equal 2 * radius_m (checked by test)
+        width_m: 0.02                  # [MEASURED]
+        track_width_m: 0.24            # [MEASURED] wheel centre to wheel centre (NOT the footprint width)
+        axle_x_m: -0.05                # [LEGACY] axle position along X relative to base_link
+      caster:
+        radius_m: 0.0175               # [MEASURED]
+        diameter_m: 0.035              # [MEASURED] must equal 2 * radius_m (checked by test)
+        x_m: 0.10                      # [LEGACY] caster position along X relative to base_link
+      imu:                             # position of imu_link relative to base_link
+        x_m: -0.08                     # [MEASURED] 8 cm toward the rear
+        y_m: 0.0                       # assumed centred (only "toward the rear" was measured)
+        z_m: 0.101                     # [LEGACY] height above wheel centre; not measured; irrelevant to 2D EKF
+      lidar:
+        x_m: 0.10                      # [LEGACY] hardware URDF only (sim lidar.xacro still uses x = 0)

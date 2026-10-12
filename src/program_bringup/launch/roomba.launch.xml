@@ -18,7 +18,8 @@
                   use_sim:=$(var sim)
                   serial_port:=$(var serial_port)
                   baud_rate:=$(var baud_rate)
-                  controllers_config_path:=$(find-pkg-share program_bringup)/config/controllers.yaml')"/>
+                  controllers_config_path:=$(find-pkg-share program_bringup)/config/controllers.yaml
+                  robot_dimensions_path:=$(find-pkg-share program_bringup)/config/robot_dimensions.yaml')"/>
     <let name="robot_controllers" value="$(find-pkg-share program_bringup)/config/controllers.yaml"/>
     <let name="rviz_config_path" value="$(find-pkg-share urdfs)/rviz/default.rviz"/>
     <let name="gazebo_config_path" value="$(find-pkg-share program_bringup)/config/gazebo_bridge.yaml"/>
@@ -65,6 +66,7 @@
 
     <!-- global_planners: A* on the validated map -->
     <node pkg="global_planners" exec="a_star" name="a_star" output="screen">
+        <param from="$(find-pkg-share program_bringup)/config/robot_dimensions.yaml"/>
         <param name="use_sim_time" value="$(var sim)"/>
     </node>
 
