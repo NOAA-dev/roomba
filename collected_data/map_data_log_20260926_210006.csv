@@ -1,1 +1,0 @@
-wall_time,ros_time_sec,source,counter,map_width,map_height,map_resolution,origin_x,origin_y,origin_z,origin_qx,origin_qy,origin_qz,origin_qw,odom_time_sec,odom_x,odom_y,odom_yaw,grid_data
