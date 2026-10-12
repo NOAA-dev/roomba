@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!-- Robot geometry properties, loaded from the shared YAML
+     (program_bringup/config/robot_dimensions.yaml). Include this file FIRST in
+     every robot description; do not hardcode these values elsewhere. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <!-- Passed by the launch files:
+         robot_dimensions_path:=$(find-pkg-share program_bringup)/config/robot_dimensions.yaml -->
+    <xacro:arg name="robot_dimensions_path" default="" />
+
+    <xacro:property name="robot_dims"
+        value="${xacro.load_yaml('$(arg robot_dimensions_path)')['/**']['ros__parameters']['robot']}" />
+
+    <xacro:property name="footprint_length" value="${robot_dims['footprint']['length_m']}" />
+    <xacro:property name="footprint_width"  value="${robot_dims['footprint']['width_m']}" />
+
+    <xacro:property name="wheel_radius"     value="${robot_dims['drive_wheel']['radius_m']}" />
+    <xacro:property name="wheel_thickness"  value="${robot_dims['drive_wheel']['width_m']}" />
+    <xacro:property name="track_width"      value="${robot_dims['drive_wheel']['track_width_m']}" />
+    <xacro:property name="wheel_axle_x"     value="${robot_dims['drive_wheel']['axle_x_m']}" />
+
+    <xacro:property name="caster_radius"    value="${robot_dims['caster']['radius_m']}" />
+    <xacro:property name="caster_x"         value="${robot_dims['caster']['x_m']}" />
+    <!-- caster centre height in base_link so the sphere touches the ground (ground = -wheel_radius) -->
+    <xacro:property name="caster_z"         value="${caster_radius - wheel_radius}" />
+
+    <!-- Body: base_link is at wheel-centre height. Top = robot height above wheel centre. -->
+    <xacro:property name="body_top_z"       value="${robot_dims['body']['top_above_wheel_center_m']}" />
+    <xacro:property name="body_bottom_z"    value="${robot_dims['body']['bottom_above_wheel_center_m']}" />
+    <xacro:property name="body_height"      value="${body_top_z - body_bottom_z}" />
+    <xacro:property name="body_center_z"    value="${(body_top_z + body_bottom_z) / 2.0}" />
+
+    <xacro:property name="imu_x"            value="${robot_dims['imu']['x_m']}" />
+    <xacro:property name="imu_y"            value="${robot_dims['imu']['y_m']}" />
+    <xacro:property name="imu_z"            value="${robot_dims['imu']['z_m']}" />
+
+    <xacro:property name="lidar_x"          value="${robot_dims['lidar']['x_m']}" />
+
+</robot>

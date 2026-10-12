@@ -10,6 +10,7 @@
     <xacro:arg name="serial_port" default="/dev/roomba_esp32" />
     <xacro:arg name="baud_rate" default="115200" />
 
+    <xacro:include filename="dimensions.xacro" />
     <xacro:include filename="materials.xacro" />
     <xacro:include filename="inertia_descriptions.xacro" />
     <xacro:include filename="camera.xacro" />
@@ -23,28 +24,26 @@
         serial_port="$(arg serial_port)"
         baud_rate="$(arg baud_rate)" />
 
-    <xacro:property name="roomba_radius" value="0.1925" />
-    <xacro:property name="roomba_height" value="0.1" />
-    <xacro:property name="wheel_radius" value="0.035" />
-    <xacro:property name="wheel_thickness" value="0.02" />
+    <!-- footprint / wheel / caster / body dimensions: see dimensions.xacro
+         (generated from program_bringup/config/robot_dimensions.yaml) -->
     
     <link name="roomba">
     </link>
     <link name="base_link">
         <visual>
             <geometry>
-                <cylinder radius="${roomba_radius}" length="${roomba_height}" /> 
+                <box size="${footprint_length} ${footprint_width} ${body_height}" />
             </geometry>
-            <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0" />
+            <origin xyz="0 0 ${body_center_z}" rpy="0 0 0" />
             <material name="blue" />
         </visual>
         <collision>
             <geometry>
-                <cylinder radius="${roomba_radius}" length="${roomba_height}" /> 
+                <box size="${footprint_length} ${footprint_width} ${body_height}" />
             </geometry>
-            <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0" />
+            <origin xyz="0 0 ${body_center_z}" rpy="0 0 0" />
         </collision>
-        <xacro:cylinder_inertia Mass="10.0" r="${roomba_radius}" h="${roomba_height}" arr_xyz="0 0 ${wheel_radius}" arr_rpy="0 0 0" />
+        <xacro:box_inertia Mass="10.0" x="${footprint_length}" y="${footprint_width}" z="${body_height}" arr_xyz="0 0 ${body_center_z}" arr_rpy="0 0 0" />
     </link>
 
     <xacro:macro name="wheel" params="params">
@@ -73,38 +72,38 @@
     <link name="caster_wheel">
         <visual>
             <geometry>
-                <sphere radius="0.01755"/>
+                <sphere radius="${caster_radius}"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
             <material name="grey"/>
         </visual>
         <collision>
             <geometry>
-                <sphere radius="0.01755"/>
+                <sphere radius="${caster_radius}"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </collision>
-        <xacro:solid_sphere_inertia Mass="0.5" r="0.01755" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
+        <xacro:solid_sphere_inertia Mass="0.5" r="${caster_radius}" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
     </link>
 
     <joint name="base_right_wheel_joint" type="continuous">
         <parent link="base_link"/>
         <child link="right_wheel"/>
-        <origin xyz="-0.05 -0.1665 0" rpy="0 0 0"/>
+        <origin xyz="${wheel_axle_x} ${-track_width / 2.0} 0" rpy="0 0 0"/>
         <axis xyz="0 1 0"/>
     </joint>
 
     <joint name="base_left_wheel_joint" type="continuous">
         <parent link="base_link"/>
         <child link="left_wheel"/>
-        <origin xyz="-0.05 0.1665 0" rpy="0 0 0"/>
+        <origin xyz="${wheel_axle_x} ${track_width / 2.0} 0" rpy="0 0 0"/>
         <axis xyz="0 1 0"/>
     </joint>
 
     <joint name="base_caster_wheel_joint" type="fixed">
         <parent link="base_link"/>
         <child link="caster_wheel"/>
-        <origin xyz="0.1 0 ${-wheel_radius/2}" rpy="0 0 0"/>
+        <origin xyz="${caster_x} 0 ${caster_z}" rpy="0 0 0"/>
     </joint>
 
     <joint name="spine" type="fixed">

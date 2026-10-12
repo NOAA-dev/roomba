@@ -3,23 +3,41 @@ import rclpy
 import numpy as np
 from rclpy.time import Time
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from geometry_msgs.msg import TwistStamped,Twist
 from std_msgs.msg import Float64MultiArray
 from sensor_msgs.msg import JointState
 from tf_transformations import quaternion_from_euler 
 from nav_msgs.msg import Odometry
  
- 
+def _required_float(node, name):
+    """Read a geometry parameter that must come from robot_dimensions.yaml.
+
+    There is deliberately no default: robot geometry has a single source of
+    truth (program_bringup/config/robot_dimensions.yaml), so a launch that
+    forgets to load it fails loudly instead of silently using stale numbers.
+    """
+    node.declare_parameter(name, Parameter.Type.DOUBLE)
+    try:
+        value = node.get_parameter(name).value
+    except Exception:
+        value = None
+    if value is None:
+        raise RuntimeError(
+            f"Parameter '{name}' is not set. Load "
+            "program_bringup/config/robot_dimensions.yaml into this node "
+            "(<param from=...> / parameters=[...]).")
+    return float(value)
+
+
 class CMDRelayNode(Node): 
     def __init__(self):
         super().__init__("cmd_relay") 
 
         self.get_logger().info("cmd_relay node has been started")
-        self.declare_parameter("wheelseperation", 0.333)
-        self.declare_parameter("wheelradius", 0.035)
-
-        self.L_ = self.get_parameter("wheelseperation").value
-        self.R_ = self.get_parameter("wheelradius").value
+        # Geometry comes from program_bringup/config/robot_dimensions.yaml
+        self.L_ = _required_float(self, "robot.drive_wheel.track_width_m")
+        self.R_ = _required_float(self, "robot.drive_wheel.radius_m")
 
         self.x_cood = 0.0
         self.y_cood = 0.0

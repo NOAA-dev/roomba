@@ -12,10 +12,31 @@ from rclpy.duration import Duration
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from nav_msgs.msg import Odometry
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 from scipy.ndimage import distance_transform_edt
 from rclpy.qos import QoSProfile, DurabilityPolicy
+
+
+def _required_float(node, name):
+    """Read a geometry parameter that must come from robot_dimensions.yaml.
+
+    There is deliberately no default: robot geometry has a single source of
+    truth (program_bringup/config/robot_dimensions.yaml), so a launch that
+    forgets to load it fails loudly instead of silently using stale numbers.
+    """
+    node.declare_parameter(name, Parameter.Type.DOUBLE)
+    try:
+        value = node.get_parameter(name).value
+    except Exception:
+        value = None
+    if value is None:
+        raise RuntimeError(
+            f"Parameter '{name}' is not set. Load "
+            "program_bringup/config/robot_dimensions.yaml into this node "
+            "(<param from=...> / parameters=[...]).")
+    return float(value)
 
 
 class node_state:
@@ -38,14 +59,17 @@ class AStarNode(Node):
         path_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.computing = False
 
-        self.declare_parameter("wheelseperation", 0.333)
-        self.declare_parameter("wheelradius", 0.035)
-        self.declare_parameter("robotradius", 0.1925)
-
-        # bot parameters
-        self.L_ = self.get_parameter("wheelseperation").value
-        self.R_ = self.get_parameter("wheelradius").value
-        self.robot_radius = self.get_parameter("robotradius").value
+        # bot parameters -- from program_bringup/config/robot_dimensions.yaml
+        self.L_ = _required_float(self, "robot.drive_wheel.track_width_m")
+        self.R_ = _required_float(self, "robot.drive_wheel.radius_m")
+        footprint_length = _required_float(self, "robot.footprint.length_m")
+        footprint_width = _required_float(self, "robot.footprint.width_m")
+        axle_x = _required_float(self, "robot.drive_wheel.axle_x_m")
+        # Conservative planning radius: circumscribed radius of the footprint
+        # about base_link, plus the axle offset. The robot pivots about the
+        # axle midpoint, not the footprint centre, and the URDF/EKF disagree
+        # on which of the two the `roomba` frame is, so this bound covers both.
+        self.robot_radius = math.hypot(footprint_length / 2.0, footprint_width / 2.0) + abs(axle_x)
 
         # system parameters
         self.dt_ = 0.5
