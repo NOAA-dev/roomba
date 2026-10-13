@@ -16,12 +16,19 @@ namespace roomba_hardware
 namespace
 {
 // Telemetry line, e.g.:
-//   POS A=12.50deg  VEL A=3.10deg/s   |   POS B=12.40deg  VEL B=3.05deg/s
+//   POS A=12.50deg  VEL A=3.10deg/s   |   POS B=12.40deg  VEL B=3.05deg/s  T=123456
+// The trailing T=<esp32 millis> is optional (older firmware doesn't send it).
 // Whitespace on the wire is not guaranteed to match this exactly, so match
 // loosely on whitespace and strictly on the literal tokens around it.
 const std::regex kTelemetryRe(
   R"(POS\s*A=([-+]?[0-9]*\.?[0-9]+)deg\s*VEL\s*A=([-+]?[0-9]*\.?[0-9]+)deg/s\s*\|\s*)"
-  R"(POS\s*B=([-+]?[0-9]*\.?[0-9]+)deg\s*VEL\s*B=([-+]?[0-9]*\.?[0-9]+)deg/s)");
+  R"(POS\s*B=([-+]?[0-9]*\.?[0-9]+)deg\s*VEL\s*B=([-+]?[0-9]*\.?[0-9]+)deg/s)"
+  R"((?:\s*T=([0-9]+))?)");
+
+// Telemetry period requested from the firmware with "T <ms>" after connecting
+// (the firmware default is the same; this just makes it explicit and survives
+// the firmware default being changed later). 20 ms = 50 Hz.
+constexpr int kTelemetryPeriodMs = 20;
 
 // --- Command rate-limiting rule (write side) ---------------------------
 // controller_manager calls write() at the controller_manager `update_rate`
@@ -53,7 +60,7 @@ constexpr std::chrono::milliseconds kCommandKeepaliveInterval{100};
 // moment a motor goes idle, just under the firmware's own settle
 // threshold). "P" always calls printStatus() unconditionally, idle or not,
 // so we use it purely as a keep-fresh poll when nothing has arrived
-// recently. 200ms is comfortably above the firmware's ~150ms active-
+// recently. 200ms is comfortably above the firmware's ~20ms active-
 // streaming cadence (so a moving robot's real telemetry always beats this
 // timer and no redundant "P" gets sent) but still tight enough that a
 // stationary robot's read() state is never more than ~200ms stale.
@@ -215,6 +222,10 @@ void SerialLink::parse_buffered_lines()
       t.vel_a_deg_s = std::stod(m[2]);
       t.pos_b_deg = std::stod(m[3]);
       t.vel_b_deg_s = std::stod(m[4]);
+      if (m[5].matched) {
+        t.esp_ms = static_cast<uint32_t>(std::stoul(m[5]));
+        t.has_esp_ms = true;
+      }
       t.stamp = std::chrono::steady_clock::now();
       t.ever_received = true;
       {
@@ -325,6 +336,13 @@ void SerialLink::thread_main()
           // reporting last-known state rather than crashing ros2_control_node.
           std::this_thread::sleep_for(std::chrono::milliseconds(kPollTimeoutMs));
           continue;
+        }
+        // Best effort: ask for the telemetry rate we want. If the ESP32 resets
+        // on port open this gets lost, which is fine - the firmware default
+        // is the same rate.
+        write_line("T " + std::to_string(kTelemetryPeriodMs));
+        if (fd_ < 0) {
+          continue;  // write failed and dropped the link
         }
       } else {
         std::this_thread::sleep_for(std::chrono::milliseconds(kPollTimeoutMs));

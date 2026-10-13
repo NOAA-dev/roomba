@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import math
 import rclpy
 import numpy as np
 from rclpy.time import Time
@@ -30,6 +31,23 @@ def _required_float(node, name):
     return float(value)
 
 
+def limit_wheel_speeds(left, right, wheel_radius, max_wheel_speed):
+    """Limit wheel commands (rad/s) so the faster wheel stays under max_wheel_speed (m/s).
+
+    Both wheels are scaled by the same factor, so the turn radius is preserved
+    (clipping one wheel alone would change it). Non-finite input stops the robot.
+    max_wheel_speed <= 0 disables the limit. Returns (left, right, was_limited).
+    """
+    if not (math.isfinite(left) and math.isfinite(right)):
+        return 0.0, 0.0, True
+    if max_wheel_speed > 0.0:
+        peak = max(abs(left), abs(right)) * wheel_radius
+        if peak > max_wheel_speed:
+            scale = max_wheel_speed / peak
+            return left * scale, right * scale, True
+    return left, right, False
+
+
 class CMDRelayNode(Node): 
     def __init__(self):
         super().__init__("cmd_relay") 
@@ -38,6 +56,16 @@ class CMDRelayNode(Node):
         # Geometry comes from program_bringup/config/robot_dimensions.yaml
         self.L_ = _required_float(self, "robot.drive_wheel.track_width_m")
         self.R_ = _required_float(self, "robot.drive_wheel.radius_m")
+
+        # Safety. Limits are not geometry, so they are plain parameters:
+        #   max_wheel_speed_m_s  per-wheel speed cap, 0 = no limit (set by joystick.launch.py)
+        #   cmd_timeout_s        stop if no velocity command arrives for this long, 0 = off
+        self.declare_parameter("max_wheel_speed_m_s", 0.0)
+        self.declare_parameter("cmd_timeout_s", 0.5)
+        self.max_wheel_speed = float(self.get_parameter("max_wheel_speed_m_s").value)
+        self.cmd_timeout = float(self.get_parameter("cmd_timeout_s").value)
+        self.last_cmd_time = None
+        self.cmd_active = False  # a non-zero command is currently being held
 
         self.x_cood = 0.0
         self.y_cood = 0.0
@@ -79,6 +107,7 @@ class CMDRelayNode(Node):
         self.odom_publisher_ = self.create_publisher(Odometry,"/odometry",10)
 
         self.timer = self.create_timer(0.02,self.odom_publisher)
+        self.watchdog_timer = self.create_timer(0.05,self.cmd_watchdog)
  
     def genrate_cmd_vel(self,msg: Twist):
 
@@ -90,6 +119,17 @@ class CMDRelayNode(Node):
         right_wheel_velocity = wheel_velocities[0][0]
         left_wheel_velocity = wheel_velocities[1][0]
 
+        left_wheel_velocity, right_wheel_velocity, limited = limit_wheel_speeds(
+            left_wheel_velocity, right_wheel_velocity, self.R_, self.max_wheel_speed)
+        if limited:
+            self.get_logger().warn(
+                f"Wheel command limited (max {self.max_wheel_speed} m/s per wheel, "
+                f"requested v={linear_velocity:.2f} m/s, w={angular_velocity:.2f} rad/s)",
+                throttle_duration_sec=2.0)
+
+        self.last_cmd_time = self.get_clock().now()
+        self.cmd_active = bool(abs(left_wheel_velocity) > 1e-6 or abs(right_wheel_velocity) > 1e-6)
+
         wheel_speed_msg = Float64MultiArray()
         wheel_speed_msg.data = [left_wheel_velocity, right_wheel_velocity]
 
@@ -100,6 +140,22 @@ class CMDRelayNode(Node):
         cmd_vel_stamped_msg.twist.linear.x = linear_velocity
         cmd_vel_stamped_msg.twist.angular.z = angular_velocity
 
+
+    def cmd_watchdog(self):
+        """Stop the wheels if a non-zero command stops being refreshed.
+
+        Without this the last wheel command stays latched: the hardware
+        interface keeps sending keepalives, so the firmware watchdog never trips.
+        """
+        if not self.cmd_active or self.cmd_timeout <= 0.0 or self.last_cmd_time is None:
+            return
+        age = (self.get_clock().now() - self.last_cmd_time).nanoseconds * 1e-9
+        if age > self.cmd_timeout:
+            self.cmd_active = False
+            stop_msg = Float64MultiArray()
+            stop_msg.data = [0.0, 0.0]
+            self.cmd_vel_publisher_.publish(stop_msg)
+            self.get_logger().warn(f"No velocity command for {age:.2f} s -- wheels stopped")
 
     def joy_in_callback(self,msg: TwistStamped):
         joy_in_msg = Twist()

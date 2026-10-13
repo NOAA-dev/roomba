@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -20,8 +21,11 @@ namespace roomba_hardware
 /// Wire protocol (verified against dual_motor_controller_ros2_compatible.ino,
 /// unit: degrees / degrees-per-second):
 ///   out: "V1 <deg_s>\n", "V2 <deg_s>\n", "S\n", "Z\n", "P\n"
-///   in : "POS A=<f>deg  VEL A=<f>deg/s   |   POS B=<f>deg  VEL B=<f>deg/s\n"
-///        streamed unprompted ~every 150ms *only while at least one motor is
+///   out: "T <ms>\n" once after connecting (sets the telemetry period)
+///   in : "POS A=<f>deg  VEL A=<f>deg/s   |   POS B=<f>deg  VEL B=<f>deg/s  T=<ms>\n"
+///        (T= is the ESP32's millis() when the line was printed; older firmware
+///        without it still parses, has_esp_ms stays false)
+///        streamed unprompted every ~20ms *only while at least one motor is
 ///        non-idle* (confirmed from firmware's `loop()`: the telemetry print
 ///        is gated on `active`), and once in reply to "P" -- which works
 ///        regardless of idle/active state. This class uses "P" internally
@@ -38,6 +42,10 @@ public:
     double vel_a_deg_s = 0.0;
     double pos_b_deg = 0.0;
     double vel_b_deg_s = 0.0;
+    // ESP32 millis() at the moment the line was printed (32-bit, wraps after
+    // ~49 days). Only valid when has_esp_ms is true.
+    uint32_t esp_ms = 0;
+    bool has_esp_ms = false;
     // Wall-clock time this Telemetry was last refreshed from a parsed line.
     // Not the same as "data is stale" -- callers decide what staleness means.
     std::chrono::steady_clock::time_point stamp{};

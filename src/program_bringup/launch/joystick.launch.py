@@ -3,13 +3,25 @@ from launch_ros.actions import Node
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import IncludeLaunchDescription , DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
 
     program_bringup_pkg = get_package_share_directory("program_bringup")
 
     use_sim_time_arg = DeclareLaunchArgument(name="use_sim_time", default_value="True",description="Use simulated time")
+
+    # Per-wheel speed cap (m/s) for the REAL robot only; the simulation is never
+    # limited. 0.20 m/s is ~70% of the ESP32's PWM_MAX ceiling (~0.30 m/s) and is
+    # still UNVALIDATED: use e.g. 0.10 for the first floor tests.
+    max_wheel_speed_arg = DeclareLaunchArgument(
+        name="max_wheel_speed", default_value="0.20",
+        description="Per-wheel speed limit in m/s on real hardware (0 = no limit)")
+    max_wheel_speed = ParameterValue(
+        PythonExpression(["0.0 if '", LaunchConfiguration("use_sim_time"),
+                          "'.lower() == 'true' else ", LaunchConfiguration("max_wheel_speed")]),
+        value_type=float)
 
     joystick_teleop_config = os.path.join(
         program_bringup_pkg,
@@ -59,13 +71,15 @@ def generate_launch_description():
         name="cmd_relay",
         output="screen",
         parameters=[
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {"use_sim_time": LaunchConfiguration("use_sim_time"),
+             "max_wheel_speed_m_s": max_wheel_speed},
             os.path.join(program_bringup_pkg, "config", "robot_dimensions.yaml"),
         ],
     )
 
     return LaunchDescription([
         use_sim_time_arg,
+        max_wheel_speed_arg,
         joystick_node,
         joy_node,
         twist_mux_node,
