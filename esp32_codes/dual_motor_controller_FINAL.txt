@@ -2,6 +2,18 @@
   ==========================================================================
   ESP32 Dual-Motor Closed-Loop Angle/Speed Controller  (v3)
   ==========================================================================
+  v4.2 - faster, timestamped telemetry:
+    - Status line now streams every 20 ms (50 Hz) while a motor is active
+      (was 150 ms) and ends with T=<millis>, the ESP32 clock at the moment the
+      line was printed. Everything before T= is unchanged, so an older parser
+      that only knows POS/VEL still works.
+    - New command 'T <ms>' sets the streaming period (10..1000 ms, 0 = back
+      to the 20 ms default). Not saved over a reboot - the default applies.
+    - Velocity itself is still re-measured every 50 ms, so VEL repeats for 2-3
+      lines in a row; POS is fresh on every line.
+    - At 115200 baud the stream uses roughly half the link. If you see jittery
+      control or garbled lines, send 'T 40'.
+
   v4 - calibration-based update (open-loop sweeps with the wheels lifted):
     - COUNTS_PER_REV_B 5100 -> 5070 (both motors are now 5070).
     - Feedforward: straight-line fit replaced by per-motor speed->PWM lookup
@@ -109,6 +121,7 @@
     A <accel> [<decel>]            Set speed-up / slow-down limits, deg/s2 (both motors)
     K1 <Kp> <Ki> <Kd>              Motor A velocity-PID gains
     K2 <Kp> <Ki> <Kd>              Motor B velocity-PID gains
+    T <ms>                         Telemetry period while moving, ms (10-1000, 0 = default 20)
     C                              Toggle raw encoder count streaming (calibration)
     P                              Print current status once
     ?                              Print help
@@ -391,6 +404,13 @@ const int LEFT_WHEEL_DRIVE_SIGN = 1;
 bool calibrationMode = false;
 unsigned long lastTelemetryMs = 0;
 unsigned long lastCalPrintMs = 0;
+
+// Telemetry streaming period while at least one motor is active. Set at run
+// time with 'T <ms>'; resets to the default on reboot.
+const long TELEMETRY_DEFAULT_MS = 20;
+const long TELEMETRY_MIN_MS = 10;
+const long TELEMETRY_MAX_MS = 1000;
+unsigned long telemetryPeriodMs = TELEMETRY_DEFAULT_MS;
 
 // ---------------------------------------------------------------------
 // COMMAND WATCHDOG - for ROS2/cmd_vel-style continuous control
@@ -687,6 +707,7 @@ void printHelp() {
   Serial.println(F("  A <accel> [<decel>]             set speed-up / slow-down limits (deg/s2)"));
   Serial.println(F("  K1 <Kp> <Ki> <Kd>               motor A PID gains"));
   Serial.println(F("  K2 <Kp> <Ki> <Kd>               motor B PID gains"));
+  Serial.println(F("  T <ms>                         telemetry period while moving (10-1000, 0=default 20)"));
   Serial.println(F("  C                              toggle raw count stream (calibration)"));
   Serial.println(F("  P                              print status once"));
 }
@@ -700,7 +721,8 @@ void printStatus() {
   Serial.print(motorGetPositionDeg(motB, encCountB), 2);
   Serial.print(F("deg  VEL B="));
   Serial.print(motorGetVelocityDegS(motB), 2);
-  Serial.println(F("deg/s"));
+  Serial.print(F("deg/s  T="));
+  Serial.println(millis());
 }
 
 void handleCommand(String line) {
@@ -788,6 +810,13 @@ void handleCommand(String line) {
     g.kp = kp; g.ki = ki; g.kd = kd;
     Serial.print(cmd); Serial.print(F(" gains set: Kp=")); Serial.print(kp);
     Serial.print(F(" Ki=")); Serial.print(ki); Serial.print(F(" Kd=")); Serial.println(kd);
+  } else if (cmd == "T") {
+    long ms = (sp1 == -1) ? 0 : (long)line.substring(sp1 + 1).toDouble();
+    if (ms <= 0) ms = TELEMETRY_DEFAULT_MS;
+    if (ms < TELEMETRY_MIN_MS) ms = TELEMETRY_MIN_MS;
+    if (ms > TELEMETRY_MAX_MS) ms = TELEMETRY_MAX_MS;
+    telemetryPeriodMs = (unsigned long)ms;
+    Serial.print(F("Telemetry period ")); Serial.print(ms); Serial.println(F(" ms"));
   } else if (cmd == "C") {
     calibrationMode = true;
     Serial.println(F("Calibration mode ON - rotate output shaft by hand,"));
@@ -933,7 +962,7 @@ void loop() {
   reportFaults();
 
   bool active = (motA.mode != MODE_IDLE) || (motB.mode != MODE_IDLE);
-  if (active && millis() - lastTelemetryMs >= 150) {
+  if (active && millis() - lastTelemetryMs >= telemetryPeriodMs) {
     lastTelemetryMs = millis();
     printStatus();
   }
