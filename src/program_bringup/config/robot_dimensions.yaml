@@ -32,13 +32,13 @@
         width_m: 0.20                  # [MEASURED] along Y
       body:
         top_above_wheel_center_m: 0.20     # [MEASURED] robot height above the drive-wheel centre
-        bottom_above_wheel_center_m: -0.015   # [LEGACY] body underside (old model value); only affects sim visual/collision/inertia
+        bottom_above_wheel_center_m: 0.0 
       drive_wheel:
         radius_m: 0.035                # [MEASURED]
         diameter_m: 0.07               # [MEASURED] must equal 2 * radius_m (checked by test)
         width_m: 0.02                  # [MEASURED]
         track_width_m: 0.24            # [MEASURED] wheel centre to wheel centre (NOT the footprint width)
-        axle_x_m: 0.0               # [LEGACY] axle position along X relative to base_link
+        axle_x_m: 0.0               # [MEASURED] axle position along X relative to base_link
       caster:
         radius_m: 0.0175               # [MEASURED]
         diameter_m: 0.035              # [MEASURED] must equal 2 * radius_m (checked by test)
