@@ -229,8 +229,8 @@ hardware_interface::return_type ESP32SystemInterface::read(
 
   const SerialLink::Telemetry t = link_->get_telemetry();
   if (!t.ever_received) {
-    // Connected but no telemetry line parsed yet (ESP32 only pushes ~every
-    // 150ms) -- hold last known state rather than reporting a bogus zero.
+    // Connected but no telemetry line parsed yet (ESP32 pushes every ~20ms
+    // while moving) -- hold last known state rather than reporting a bogus zero.
     return hardware_interface::return_type::OK;
   }
 
