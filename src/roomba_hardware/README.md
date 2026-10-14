@@ -8,9 +8,9 @@ command interface and `position`/`velocity` state interfaces, so the
 `simple_velocity_controller` + `relay.py` + `ekf_node` + planner stack that
 already works in sim runs unchanged against real hardware.
 
-Selected via `use_sim:=false` on `roomba.urdf.xacro` (default `use_sim:=true`
-keeps existing sim behavior); see `roomba_hardware.launch.xml` in
-`program_bringup` for the real-hardware bringup.
+Selected by setting `mode: hardware` in `program_bringup/config/startup.yaml` and
+starting `ros2 launch program_bringup startup.launch.py` (`mode: sim` keeps the
+Gazebo behavior).
 
 ## What it does, and doesn't, do
 

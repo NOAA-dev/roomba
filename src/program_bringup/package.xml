@@ -27,7 +27,8 @@
   <exec_depend>global_planners</exec_depend>
   <exec_depend>local_planners</exec_depend>
   <exec_depend>custom_interfaces</exec_depend>
-  <exec_depend>roomb_hardware</exec_depend>
+  <exec_depend>roomba_hardware</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>ydlidar_ros2_driver</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

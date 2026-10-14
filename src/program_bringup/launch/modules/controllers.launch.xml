@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!--
+  controllers.launch.xml
+  ========================
+  Spawns the ros2_control controllers. Works the same in sim and real mode:
+  the spawners just wait for whichever controller_manager is running.
+-->
+<launch>
+
+    <!-- ===================== Joint states ===================== -->
+    <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner"
+          args="joint_state_broadcaster" output="screen"/>
+
+    <!-- ================= Wheel velocity controller ================= -->
+    <!-- diff drive controller (alternative, currently unused) -->
+    <!-- <node pkg="controller_manager" exec="spawner" args="diff_drive_controller controller-ros-args 'ros-args remap ~/cmd_vel:=/cmd_vel'"/> -->
+
+    <!-- simple velocity controller -->
+    <node pkg="controller_manager" exec="spawner" name="simple_velocity_controller_spawner"
+          args="simple_velocity_controller" output="screen"/>
+
+</launch>
