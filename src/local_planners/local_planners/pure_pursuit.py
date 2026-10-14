@@ -7,6 +7,7 @@ from tf2_ros import Buffer, TransformListener, TransformException
 from rclpy.duration import Duration
 from nav_msgs.msg import Path
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from tf_transformations import euler_from_quaternion
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
@@ -47,9 +48,12 @@ class PurePursuitNode(Node):
         self.declare_parameter("min_lookahead", 0.3)
         self.declare_parameter("max_lookahead", 1.0)
         self.declare_parameter("k_lookahead", 0.3)
-        self.declare_parameter("base_velocity", 0.8)
+        # Shared limits come from robot_dimensions.yaml (no defaults).
+        self.declare_parameter("limits.max_wheel_speed_m_s", Parameter.Type.DOUBLE)
+        self.declare_parameter("robot.drive_wheel.track_width_m", Parameter.Type.DOUBLE)
+        self.declare_parameter("base_velocity", 0.0)      # 0 -> use wheel-speed limit
         self.declare_parameter("min_velocity", 0.1)
-        self.declare_parameter("max_angular_vel", 1.2)
+        self.declare_parameter("max_angular_vel", 0.0)    # 0 -> pure-spin limit
         self.declare_parameter("tf_timeout_sec", 0.5)
         self.declare_parameter("avoid_start_distance", 0.8)
         self.declare_parameter("avoid_stop_distance", 0.3)
@@ -64,9 +68,16 @@ class PurePursuitNode(Node):
         self.min_lookahead = self.get_parameter("min_lookahead").value
         self.max_lookahead = self.get_parameter("max_lookahead").value
         self.k_lookahead = self.get_parameter("k_lookahead").value
-        self.base_velocity = self.get_parameter("base_velocity").value
-        self.min_velocity = self.get_parameter("min_velocity").value
-        self.max_angular_vel = self.get_parameter("max_angular_vel").value
+        v_lim = self.get_parameter("limits.max_wheel_speed_m_s").value
+        track = self.get_parameter("robot.drive_wheel.track_width_m").value
+        if v_lim is None or track is None or v_lim <= 0.0 or track <= 0.0:
+            raise RuntimeError("robot_dimensions.yaml (limits/track width) not loaded")
+        w_lim = 2.0 * v_lim / track  # pure spin at the wheel-speed cap
+        base = self.get_parameter("base_velocity").value
+        wmax = self.get_parameter("max_angular_vel").value
+        self.base_velocity = min(base, v_lim) if base > 0.0 else v_lim
+        self.min_velocity = min(self.get_parameter("min_velocity").value, self.base_velocity)
+        self.max_angular_vel = min(wmax, w_lim) if wmax > 0.0 else w_lim
         self.tf_timeout_sec = self.get_parameter("tf_timeout_sec").value
         self.avoid_start_distance = self.get_parameter("avoid_start_distance").value
         self.avoid_stop_distance = self.get_parameter("avoid_stop_distance").value

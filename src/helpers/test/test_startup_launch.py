@@ -75,7 +75,7 @@ def test_sim_plan():
     labels = _labels(plan)
     assert 'simulation' in labels and 'hardware_sensors' not in labels
     joystick = next(m for m in plan if m.label == 'joystick')
-    assert joystick.args['max_wheel_speed'] == 0.0 and joystick.args['use_sim_time'] is True
+    assert 'max_wheel_speed' not in joystick.args and joystick.args['use_sim_time'] is True
     assert next(m for m in plan if m.label == 'robot').args['urdf_file'] == 'roomba.urdf.xacro'
     assert next(m for m in plan if m.label == 'tools').args['rviz'] is True
 
@@ -88,25 +88,22 @@ def test_hardware_plan(tmp_path):
     assert robot.args['sim'] is False and robot.args['use_sim_time'] is False
     assert robot.args['urdf_file'] == 'roomba_hardware.urdf.xacro'
     assert robot.args['serial_port'] == '/dev/roomba_esp32'
-    assert next(m for m in plan if m.label == 'joystick').args['max_wheel_speed'] == 0.20
     assert next(m for m in plan if m.label == 'tools').args['rviz'] is False  # RViz stays off the Pi
 
 
 def test_hardware_options_and_node_switches(tmp_path):
     plan = startup.build_plan(_cfg(tmp_path, (
-        'mode: hardware\nhardware: {lidar: false, imu: false, max_wheel_speed: 0.1}\n'
+        'mode: hardware\nhardware: {lidar: false, imu: false}\n'
         'nodes: {joystick: true, slam: false, data_logger: false}\n')))
     labels = _labels(plan)
     assert 'hardware_sensors' not in labels and 'slam' not in labels and 'tools' not in labels
-    assert next(m for m in plan if m.label == 'joystick').args['max_wheel_speed'] == 0.1
 
 
 @pytest.mark.parametrize('text', [
     'mode: real\n',                              # old name is rejected
     'mode: sim\nbogus: 1\n',                     # unknown key
     'mode: hardware\nhardware: {baud_rate: x}\n',
-    'mode: hardware\nhardware: {max_wheel_speed: -1}\n',
-    'mode: hardware\nhardware: {max_wheel_speed: fast}\n',
+    'mode: hardware\nhardware: {max_wheel_speed: 0.1}\n',      # now lives in robot_dimensions.yaml
     'mode: sim\nnodes: {slam: maybe}\n',
 ])
 def test_invalid_config_rejected(tmp_path, text):

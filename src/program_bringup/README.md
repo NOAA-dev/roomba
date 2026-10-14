@@ -15,7 +15,7 @@ arguments or source edits are needed:
 |---|---|
 | `mode: sim` / `hardware` | Gazebo simulation, or ESP32 + YDLidar + BNO055 on the robot |
 | `sim:` | world, Gazebo flags, RViz |
-| `hardware:` | serial port, baud rate, RViz, lidar on/off, IMU on/off, `max_wheel_speed` |
+| `hardware:` | serial port, baud rate, RViz, lidar on/off, IMU on/off |
 | `slam_config`, `ekf_config`, `rviz_config` | override the default config files (`null` = default) |
 | `nodes:` | start/skip each node (joystick, slam, ekf, planners, explorers, manager, data logger) |
 
@@ -36,7 +36,7 @@ use `startup_config:=/path/to/other.yaml`. After editing, run
 | Robot / ros2_control | Gazebo + `gz_ros2_control` | `ros2_control_node` + `roomba_hardware` (ESP32 over serial) |
 | Sensors | Gazebo via the bridge | YDLidar + BNO055 |
 | RViz | on this machine (`sim.rviz`) | off on the Pi (`hardware.rviz: false`), run it on the laptop |
-| Wheel-speed cap | none | `hardware.max_wheel_speed` (m/s per wheel) |
+| Wheel-speed cap | 0.25 m/s per wheel (`limits.max_wheel_speed_m_s` in `robot_dimensions.yaml`, both modes) |
 
 ## View the real robot from a laptop
 

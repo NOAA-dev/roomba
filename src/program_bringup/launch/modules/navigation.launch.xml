@@ -24,6 +24,7 @@
     <!-- local_planners: pure pursuit path tracking + integrated VFH avoidance -->
     <node pkg="local_planners" exec="pure_pursuit" name="pure_pursuit_node" output="screen"
           if="$(var enable_local_planner)">
+        <param from="$(find-pkg-share program_bringup)/config/robot_dimensions.yaml"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
     </node>
 
