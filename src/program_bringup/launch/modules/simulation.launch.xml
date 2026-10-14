@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!--
+  simulation.launch.xml
+  ========================
+  Gazebo side of the simulation (sim mode only):
+    - model search path
+    - Gazebo with the chosen world
+    - spawn of the robot from /robot_description
+    - ROS <-> Gazebo topic bridge
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="world" default="$(find-pkg-share program_bringup)/world/small_house.world"
+         description="Full path of the Gazebo world file"/>
+    <arg name="gz_flags" default="-r -s -v 1"
+         description="Extra Gazebo flags (-r run on start, -s server only/headless, -v verbosity)"/>
+    <arg name="bridge_config" default="$(find-pkg-share program_bringup)/config/gazebo_bridge.yaml"
+         description="ros_gz_bridge topic configuration"/>
+    <arg name="models_path" default="$(find-pkg-share program_bringup)/models"
+         description="Folder added to GZ_SIM_RESOURCE_PATH"/>
+
+    <!-- ========================= Gazebo ========================= -->
+    <set_env name="GZ_SIM_RESOURCE_PATH" value="$(var models_path)"/>
+
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+        <arg name="gz_args" value="$(var world) $(var gz_flags)"/>
+    </include>
+
+    <!-- Spawn the robot published by robot_state_publisher -->
+    <node pkg="ros_gz_sim" exec="create" args="-topic robot_description"/>
+
+    <!-- ROS <-> Gazebo bridge -->
+    <node pkg="ros_gz_bridge" exec="parameter_bridge">
+        <param name="config_file" value="$(var bridge_config)"/>
+    </node>
+
+</launch>

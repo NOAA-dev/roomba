@@ -1,0 +1,71 @@
+# =============================================================================
+#  Roomba startup configuration  -  the ONE file that selects sim or hardware
+# =============================================================================
+#  Edit this file, then start everything with:
+#
+#      ros2 launch program_bringup startup.launch.py
+#
+#  No launch arguments and no source edits are needed to switch modes. To keep
+#  several setups, copy this file and pick one at launch time:
+#
+#      ros2 launch program_bringup startup.launch.py startup_config:=/path/to/other.yaml
+#
+#  NOTE: after editing, `colcon build --packages-select program_bringup` copies
+#  the file into the install folder. Build once with --symlink-install and edits
+#  are picked up immediately.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+#  Mode
+#    sim       Gazebo simulation. Uses the simulated clock (use_sim_time = true).
+#    hardware  Real robot: ESP32 motor controller over serial, YDLidar and
+#              BNO055 IMU. Uses the system clock (use_sim_time = false).
+#              Run this on the Raspberry Pi; view it from a laptop (see README).
+# -----------------------------------------------------------------------------
+mode: sim
+
+# -----------------------------------------------------------------------------
+#  Simulation settings (used when mode: sim)
+# -----------------------------------------------------------------------------
+sim:
+  world: small_house.world     # file in program_bringup/world/ (or an absolute path)
+  gz_flags: "-r -s -v 1"       # -r run on start, -s server only (no Gazebo GUI), -v verbosity
+  rviz: true                   # start RViz2 on this machine
+
+# -----------------------------------------------------------------------------
+#  Hardware settings (used when mode: hardware)
+# -----------------------------------------------------------------------------
+hardware:
+  serial_port: /dev/roomba_esp32   # udev symlink, see program_bringup/udev/99-roomba-serial.rules
+  baud_rate: 115200                # must match the ESP32 firmware
+  rviz: false                      # keep false on the Pi; run RViz on the laptop instead
+  lidar: true                      # start the YDLidar driver
+  imu: true                        # start the BNO055 IMU node
+  max_wheel_speed: 0.20            # m/s per wheel cap in cmd_relay, 0 = no limit.
+                                   # UNVALIDATED proposal (~70% of the ~0.30 m/s ESP32
+                                   # ceiling); use 0.10 for the first floor tests.
+
+# -----------------------------------------------------------------------------
+#  Shared settings (both modes)
+#  A plain file name is looked up in program_bringup/config/ (rviz_config in
+#  urdfs/rviz/). Use an absolute path to point somewhere else. null = default.
+#  Robot geometry is NOT here: it lives in robot_dimensions.yaml.
+# -----------------------------------------------------------------------------
+slam_config: null              # default: slam_toolbox.yaml
+ekf_config: null               # default: ekf.yaml
+rviz_config: null              # default: urdfs/rviz/default.rviz
+
+# -----------------------------------------------------------------------------
+#  Nodes - set to false to leave a node out
+# -----------------------------------------------------------------------------
+nodes:
+  joystick: true               # joy, joy_teleop, twist_mux, cmd_relay
+  slam: true                   # map_saver_server, slam_toolbox
+  ekf: true                    # robot_localization EKF
+  global_planner: true         # A*
+  local_planner: true          # pure pursuit + VFH avoidance
+  map_validator: true
+  frontier_explorer: true
+  reactive_explorer: true      # runs as "object_avoider"
+  manager: true                # lifecycle manager for SLAM + enable states
+  data_logger: true            # CSV logs of odometry, map, wheel commands

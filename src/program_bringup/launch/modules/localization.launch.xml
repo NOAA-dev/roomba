@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!--
+  localization.launch.xml
+  ========================
+  robot_localization EKF (fuses wheel odometry from /joint_states + IMU).
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="use_sim_time" default="true"
+         description="Use the simulated (/clock) time source"/>
+    <arg name="ekf_config" default="$(find-pkg-share program_bringup)/config/ekf.yaml"
+         description="robot_localization EKF parameter file"/>
+
+    <!-- ========================== EKF ========================== -->
+    <node pkg="robot_localization" exec="ekf_node" name="ekf_filter_node" output="screen">
+        <param from="$(var ekf_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+</launch>
