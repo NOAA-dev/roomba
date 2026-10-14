@@ -97,3 +97,40 @@ def test_generated_urdf(name, sim):
     assert joints['base_imu_joint'].find('origin').get('rpy').split() == ['0', '0', '0']  # no 2nd mount rotation
     if name == 'roomba':
         assert f'<wheel_separation>{d["drive_wheel"]["track_width_m"]}</wheel_separation>' in out
+
+
+def _limit():
+    p = yaml.safe_load(DIMS_YAML.read_text())['/**']['ros__parameters']
+    return p['limits']['max_wheel_speed_m_s'], p['robot']['drive_wheel']['track_width_m']
+
+
+def test_speed_limit_is_025_and_static_yamls_match():
+    v, track = _limit()
+    assert v == 0.25
+    w = round(2 * v / track, 2)  # pure-spin limit = 2.083 rad/s
+    cfg = SRC / 'program_bringup' / 'config'
+    joy = (cfg / 'joystick_teleop.yaml').read_text()
+    assert re.search(r'axis: 1\s*\n\s*scale: %s\b' % v, joy)
+    assert re.search(r'axis: 2\s*\n\s*scale: %s\b' % w, joy)
+    c = yaml.safe_load((cfg / 'controllers.yaml').read_text())['diff_drive_controller']['ros__parameters']
+    assert c['linear.x.max_velocity'] == v and c['linear.x.min_velocity'] == -v
+    assert c['angular.z.max_velocity'] == w and c['angular.z.min_velocity'] == -w
+    mux = yaml.safe_load((cfg / 'twist_mux_joy.yaml').read_text())
+    flat = str(mux)
+    assert str(v) in flat and str(w) in flat
+
+
+def test_astar_primitives_scale_keeps_geometry():
+    import ast
+    import numpy as np
+    src = (SRC / 'global_planners' / 'global_planners' / 'a_star_node.py').read_text()
+    tree = ast.parse(src)
+    keep = [n for n in tree.body if (isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'PLAN_REF_SPEED')
+            or (isinstance(n, ast.FunctionDef) and n.name == 'motion_primitives')]
+    ns = {'np': np}
+    exec(compile(ast.Module(keep, []), 'a_star', 'exec'), ns)
+    ref = ns['motion_primitives'](0.8)
+    dt, vs, ws = ns['motion_primitives'](0.25)
+    assert max(vs) == pytest.approx(0.25)
+    assert [v * dt for v in vs] == pytest.approx([v * ref[0] for v in ref[1]])
+    assert [w * dt for w in ws] == pytest.approx([w * ref[0] for w in ref[2]])

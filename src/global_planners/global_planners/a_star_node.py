@@ -19,6 +19,19 @@ from scipy.ndimage import distance_transform_edt
 from rclpy.qos import QoSProfile, DurabilityPolicy
 
 
+PLAN_REF_SPEED = 0.8  # m/s: speed the original primitive set was tuned for
+
+
+def motion_primitives(max_wheel_speed):
+    """Scale speeds by k and dt by 1/k so v*dt and w*dt (planned geometry,
+    costs, search size) are identical to the tuned set at any speed limit."""
+    k = max_wheel_speed / PLAN_REF_SPEED
+    dt = 0.5 / k
+    velocities = [PLAN_REF_SPEED * k, 0.0, -0.5 * k]
+    w_max = np.deg2rad(60) * k
+    return dt, velocities, np.linspace(-w_max, w_max, 5).tolist()
+
+
 def _required_float(node, name):
     """Read a geometry parameter that must come from robot_dimensions.yaml.
 
@@ -72,14 +85,11 @@ class AStarNode(Node):
         self.robot_radius = math.hypot(footprint_length / 2.0, footprint_width / 2.0) + abs(axle_x)
 
         # system parameters
-        self.dt_ = 0.5
-
-        self.velocity_primitives_ = [
-            0.8,
-            0.0,
-            -0.5
-        ]
-        self.angular_vel_primitives = np.linspace(-np.deg2rad(60), np.deg2rad(60), 5).tolist()
+        max_wheel_speed = _required_float(self, "limits.max_wheel_speed_m_s")
+        if max_wheel_speed <= 0.0:
+            raise RuntimeError("limits.max_wheel_speed_m_s must be > 0")
+        (self.dt_, self.velocity_primitives_,
+         self.angular_vel_primitives) = motion_primitives(max_wheel_speed)
 
         ###############################
         self.x_pos = 0.0

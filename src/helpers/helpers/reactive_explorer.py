@@ -3,6 +3,7 @@ import rclpy
 import math
 import numpy as np
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, DurabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
@@ -14,7 +15,8 @@ class ReactiveExplorerNode(Node):
         super().__init__("object_avoider")
         self.t = float()
         self.declare_parameter("min_distance", 1.2)
-        self.declare_parameter("forward_speed", 1.0)
+        self.declare_parameter("limits.max_wheel_speed_m_s", Parameter.Type.DOUBLE)
+        self.declare_parameter("forward_speed", 0.0)  # 0 -> use wheel-speed limit
         # LIDAR is mounted 0.1m forward (+x) of base_link/robot center (see
         # base_lidar_joint in roomba.urdf.xacro). Raw scan ranges are
         # distances FROM THE SENSOR, not from robot center - a beam
@@ -23,7 +25,11 @@ class ReactiveExplorerNode(Node):
         # correction, not just a flat offset. See _range_from_center().
         self.declare_parameter("lidar_offset_x", 0.1)
         self.min_distance = self.get_parameter("min_distance").value  # meters
-        self.forward_speed = self.get_parameter("forward_speed").value  # meters/second
+        v_lim = self.get_parameter("limits.max_wheel_speed_m_s").value
+        if v_lim is None or v_lim <= 0.0:
+            raise RuntimeError("robot_dimensions.yaml (limits) not loaded")
+        fs = self.get_parameter("forward_speed").value
+        self.forward_speed = min(fs, v_lim) if fs > 0.0 else v_lim  # meters/second
         self.lidar_offset_x = self.get_parameter("lidar_offset_x").value
 
         self.keep_exploring = True
@@ -106,10 +112,9 @@ class ReactiveExplorerNode(Node):
             cmd = Twist()
 
             safe_distance = 0.6
-            max_speed = 0.8
             ratio = front_clearance / safe_distance
             if ratio >= 1.0:
-                linear = max_speed * min(front_clearance / safe_distance, 0.5)
+                linear = self.forward_speed
                 angular = 0.0
             else:
                 linear = 0.0

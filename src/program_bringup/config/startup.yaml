@@ -41,15 +41,13 @@ hardware:
   rviz: false                      # keep false on the Pi; run RViz on the laptop instead
   lidar: true                      # start the YDLidar driver
   imu: true                        # start the BNO055 IMU node
-  max_wheel_speed: 0.20            # m/s per wheel cap in cmd_relay, 0 = no limit.
-                                   # UNVALIDATED proposal (~70% of the ~0.30 m/s ESP32
-                                   # ceiling); use 0.10 for the first floor tests.
 
 # -----------------------------------------------------------------------------
 #  Shared settings (both modes)
 #  A plain file name is looked up in program_bringup/config/ (rviz_config in
 #  urdfs/rviz/). Use an absolute path to point somewhere else. null = default.
-#  Robot geometry is NOT here: it lives in robot_dimensions.yaml.
+#  Robot geometry and the wheel-speed limit (both modes) are NOT here: they live in
+#  robot_dimensions.yaml.
 # -----------------------------------------------------------------------------
 slam_config: null              # default: slam_toolbox.yaml
 ekf_config: null               # default: ekf.yaml
