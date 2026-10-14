@@ -208,8 +208,6 @@ class CMDRelayNode(Node):
         self.prev_rightwheel_pose_ = right_wheel_pose
         self.prev_leftwheel_pose_ = left_wheel_pose
 
-        # Pose: integrate wheel-position deltas. Exact regardless of how often
-        # the ESP32 telemetry (~150 ms) refreshes /joint_states (100 Hz).
         linear_velocity = (self.R_ * (delta_right_wheel + delta_left_wheel) / 2.0) / dt
         angular_velocity = (self.R_ * (delta_right_wheel - delta_left_wheel) / self.L_) / dt
         delta_theta = angular_velocity * dt
@@ -219,9 +217,6 @@ class CMDRelayNode(Node):
         self.theta += angular_velocity * dt
         self.theta = np.arctan2(np.sin(self.theta), np.cos(self.theta))
 
-        # Published twist: differencing positions per 10 ms message is zero for
-        # ~14 messages then spikes ~15x when a telemetry line lands. Use the
-        # firmware-reported wheel velocities (rad/s) when available instead.
         if len(msg.velocity) > max(idx_l, idx_r):
             vl = msg.velocity[idx_l]
             vr = msg.velocity[idx_r]
