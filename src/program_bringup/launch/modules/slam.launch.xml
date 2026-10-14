@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<!--
+  slam.launch.xml
+  ========================
+  Mapping stack: nav2 map_saver_server + slam_toolbox (sync mode).
+  Neither node is activated here - manager_node owns their lifecycle
+  (see exploration.launch.xml).
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="use_sim_time" default="true"
+         description="Use the simulated (/clock) time source"/>
+    <arg name="slam_config" default="$(find-pkg-share program_bringup)/config/slam_toolbox.yaml"
+         description="slam_toolbox parameter file"/>
+    <arg name="save_map_timeout" default="5.0"
+         description="map_saver_server: seconds to wait for a map when saving"/>
+    <arg name="free_thresh" default="0.196"
+         description="map_saver_server: occupancy below this is saved as free"/>
+    <arg name="occupied_thresh" default="0.65"
+         description="map_saver_server: occupancy above this is saved as occupied"/>
+
+    <!-- ===================== Map Saver Server ===================== -->
+    <node pkg="nav2_map_server" exec="map_saver_server" name="map_saver_server" output="screen">
+        <param name="save_map_timeout" value="$(var save_map_timeout)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="free_thresh_default" value="$(var free_thresh)"/>
+        <param name="occupied_thresh_default" value="$(var occupied_thresh)"/>
+    </node>
+
+    <!-- ======================= SLAM Toolbox ======================= -->
+    <node pkg="slam_toolbox" exec="sync_slam_toolbox_node" name="slam_toolbox" output="screen">
+        <param from="$(var slam_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+</launch>

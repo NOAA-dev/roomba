@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+  exploration.launch.xml
+  ========================
+  Mapping workflow nodes from the helpers package.
+    - map_validator     : scores / validates the SLAM map
+    - frontier_explorer : drives to unexplored frontiers
+    - reactive_explorer : reactive obstacle avoidance (node name: object_avoider)
+    - manager_node      : lifecycle + enable-state manager for SLAM and the nodes above
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="use_sim_time" default="true"
+         description="Use the simulated (/clock) time source"/>
+    <arg name="enable_map_validator" default="true" description="Start map_validator"/>
+    <arg name="enable_frontier_explorer" default="true" description="Start frontier_explorer"/>
+    <arg name="enable_reactive_explorer" default="true" description="Start reactive_explorer"/>
+    <arg name="enable_manager" default="true" description="Start manager_node"/>
+
+    <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen"
+          if="$(var enable_map_validator)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- <node pkg="helpers" exec="coverage_planner" name="coverage_planner" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node> -->
+
+    <node pkg="helpers" exec="frontier_explorer" name="frontier_explorer" output="screen"
+          if="$(var enable_frontier_explorer)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="helpers" exec="reactive_explorer" name="object_avoider" output="screen"
+          if="$(var enable_reactive_explorer)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="helpers" exec="manager_node" name="manager_node" output="screen"
+          if="$(var enable_manager)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+</launch>

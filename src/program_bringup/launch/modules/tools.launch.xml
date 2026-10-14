@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!--
+  tools.launch.xml
+  ========================
+  Operator tools: RViz and the CSV data logger.
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="sim" default="true"
+         description="Recorded in the data logger run metadata (true = simulation run)"/>
+    <arg name="use_sim_time" default="true"
+         description="Use the simulated (/clock) time source"/>
+    <arg name="rviz" default="true" description="Start RViz2"/>
+    <arg name="rviz_config" default="$(find-pkg-share urdfs)/rviz/default.rviz"
+         description="RViz2 configuration file"/>
+    <arg name="enable_data_logger" default="true" description="Start the CSV data logger"/>
+
+    <!-- ========================= RViz ========================= -->
+    <node pkg="rviz2" exec="rviz2" args="-d $(var rviz_config)" if="$(var rviz)"/>
+
+    <!-- ====================== Data logger ====================== -->
+    <node pkg="helpers" exec="data_logger" name="data_logger_node" output="screen"
+          if="$(var enable_data_logger)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="sim" value="$(var sim)"/>
+    </node>
+
+</launch>

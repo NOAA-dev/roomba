@@ -21,7 +21,7 @@ diff_drive_controller:
   ros__parameters:
     left_wheel_names: ["base_left_wheel_joint"]
     right_wheel_names: ["base_right_wheel_joint"]
-    # UNUSED (spawner commented out in roomba.launch.xml). Cannot read the shared
+    # UNUSED (spawner commented out in modules/controllers.launch.xml). Cannot read the shared
     # YAML; must match robot_dimensions.yaml (enforced by test_robot_dimensions.py).
     wheel_separation: 0.24
     wheel_radius: 0.035

@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!--
+  robot.launch.xml
+  ========================
+  Robot description and the piece that owns ros2_control.
+
+    always : robot_state_publisher (TF from the xacro)
+    real   : ros2_control_node (loads roomba_hardware/ESP32SystemInterface)
+    sim    : nothing extra - the gz_ros2_control plugin inside Gazebo runs
+             the controller manager (see simulation.launch.xml)
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="sim" default="true"
+         description="true = Gazebo owns ros2_control, false = start ros2_control_node for the real robot"/>
+    <arg name="use_sim_time" default="true"
+         description="Use the simulated (/clock) time source"/>
+    <arg name="urdf_file" default="roomba.urdf.xacro"
+         description="Xacro file name inside the urdfs package (urdf/ folder)"/>
+    <arg name="serial_port" default="/dev/roomba_esp32"
+         description="ESP32 serial device (real hardware only)"/>
+    <arg name="baud_rate" default="115200"
+         description="ESP32 serial baud rate (real hardware only)"/>
+    <arg name="controllers_config" default="$(find-pkg-share program_bringup)/config/controllers.yaml"
+         description="ros2_control controller configuration"/>
+    <arg name="robot_dimensions" default="$(find-pkg-share program_bringup)/config/robot_dimensions.yaml"
+         description="Shared robot geometry (single source of truth), read by the xacro"/>
+
+    <!-- ===================== Robot description ===================== -->
+    <let name="robot_description_content"
+         value="$(command 'xacro $(find-pkg-share urdfs)/urdf/$(var urdf_file)
+                  use_sim:=$(var sim)
+                  serial_port:=$(var serial_port)
+                  baud_rate:=$(var baud_rate)
+                  controllers_config_path:=$(var controllers_config)
+                  robot_dimensions_path:=$(var robot_dimensions)')"/>
+
+    <!-- TF publisher: identical in both modes -->
+    <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+        <param name="robot_description" value="$(var robot_description_content)"/>
+        <param name="publish_fixed_joints" value="true"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ================= real robot only: ros2_control ================= -->
+    <node pkg="controller_manager" exec="ros2_control_node" name="controller_manager" output="screen"
+          unless="$(var sim)">
+        <param name="robot_description" value="$(var robot_description_content)"/>
+        <param from="$(var controllers_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+</launch>

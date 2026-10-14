@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!--
+  hardware_sensors.launch.xml
+  ========================
+  Sensors that exist only on the real robot (mode: hardware) (in simulation Gazebo provides
+  the equivalents through the bridge):
+    - YDLidar          -> laser scan
+    - BNO055 on I2C    -> /imu
+-->
+<launch>
+
+    <!-- ======================= Arguments ======================= -->
+    <arg name="use_sim_time" default="false"
+         description="Use the simulated (/clock) time source"/>
+    <arg name="enable_lidar" default="true" description="Start the YDLidar driver"/>
+    <arg name="enable_imu" default="true" description="Start the BNO055 IMU node"/>
+
+    <!-- ========================= Lidar ========================= -->
+    <include file="$(find-pkg-share ydlidar_ros2_driver)/launch/ydlidar_launch.py" if="$(var enable_lidar)">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <!-- ========================== IMU ========================== -->
+    <node pkg="helpers" exec="bno055_imu_node" name="bno055_imu_node" output="screen"
+          if="$(var enable_imu)"/>
+
+</launch>
