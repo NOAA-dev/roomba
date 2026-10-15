@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- Manual mode uses the existing relay and adds only the terminal motion client. -->
+<launch>
+    <arg name="use_sim_time" default="false"/>
+    <arg name="robot_dimensions" default="$(find-pkg-share program_bringup)/config/robot_dimensions.yaml"/>
+
+    <node pkg="helpers" exec="cmd_relay" name="cmd_relay" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(var robot_dimensions)"/>
+    </node>
+
+    <node pkg="helpers" exec="manual_motion_test" name="manual_motion_test" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+</launch>

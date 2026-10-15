@@ -161,7 +161,7 @@ def _resolve_file(name, folder, what):
 # ----------------------------------------------------------------------------
 #  Deciding what to start
 # ----------------------------------------------------------------------------
-def build_plan(cfg):
+def build_plan(cfg, manual_test=False):
     """Turn the checked config into the ordered list of modules to include."""
     share = get_package_share_directory(PACKAGE)
     sim = cfg['mode'] == 'sim'
@@ -214,6 +214,11 @@ def build_plan(cfg):
 
     plan.append(Module('controllers', 'controllers.launch.xml', {}))
 
+    if manual_test:
+        plan.append(Module('manual_test', 'manual_test.launch.xml', {
+            'use_sim_time': False,
+        }))
+
     if nodes['ekf']:
         plan.append(Module('localization', 'localization.launch.xml', {
             'use_sim_time': use_sim_time, **ekf_extra,
@@ -259,9 +264,20 @@ def _as_launch_argument(value):
 # ----------------------------------------------------------------------------
 def launch_setup(context):
     config_path = LaunchConfiguration('startup_config').perform(context)
+    manual_test = LaunchConfiguration('manual_test').perform(context).lower() in ('true', '1', 'yes')
     try:
         cfg = load_startup_config(config_path)
-        plan = build_plan(cfg)
+        if manual_test:
+            # This explicit opt-in always selects the real robot and leaves only
+            # hardware, sensors, controllers, odometry, terminal control, and RViz.
+            cfg['mode'] = 'hardware'
+            cfg['hardware']['rviz'] = True
+            cfg['rviz_config'] = 'manual_test.rviz'
+            for name in ('joystick', 'slam', 'ekf', 'global_planner', 'local_planner',
+                         'map_validator', 'frontier_explorer', 'reactive_explorer',
+                         'manager', 'data_logger'):
+                cfg['nodes'][name] = False
+        plan = build_plan(cfg, manual_test=manual_test)
     except StartupConfigError as error:
         message = f'[startup] {error}'
         return [LogInfo(msg=message), Shutdown(reason=message)]
@@ -288,5 +304,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'startup_config', default_value=default_config,
             description='Startup YAML file (sim or hardware, nodes to start, ...)'),
+        DeclareLaunchArgument(
+            'manual_test', default_value='false',
+            description='Run hardware-only manual motion and odometry testing mode'),
         OpaqueFunction(function=launch_setup),
     ])

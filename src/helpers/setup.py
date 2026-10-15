@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             "cmd_relay = helpers.relay:main",
+            "manual_motion_test = helpers.manual_motion_test:main",
             "map_validator = helpers.map_validator:main",
             "data_logger = helpers.data_logger:main",
             "reactive_explorer = helpers.reactive_explorer:main",
