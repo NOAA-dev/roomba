@@ -11,7 +11,6 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
 
 PACKAGE = 'program_bringup'
@@ -24,10 +23,6 @@ def config_path(file_name):
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
-    # Per-wheel speed cap in m/s (0 = no limit); set from startup.yaml
-    # (hardware.max_wheel_speed, always 0 in simulation).
-    max_wheel_speed = ParameterValue(
-        LaunchConfiguration('max_wheel_speed'), value_type=float)
 
     # ----------------------------- Arguments -----------------------------
     arguments = [
@@ -46,9 +41,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'twist_mux_locks', default_value=config_path('twist_mux_locks.yaml'),
             description='twist_mux lock topics'),
-        DeclareLaunchArgument(
-            'max_wheel_speed', default_value='0.0',
-            description='cmd_relay per-wheel speed limit in m/s (0 = no limit)'),
     ]
 
     # ------------------------------- Nodes -------------------------------
@@ -87,9 +79,8 @@ def generate_launch_description():
         name='cmd_relay',
         output='screen',
         parameters=[
-            {'use_sim_time': use_sim_time,
-             'max_wheel_speed_m_s': max_wheel_speed},
-            # track width and wheel radius (single source of truth)
+            {'use_sim_time': use_sim_time},
+            # track width, wheel radius and the wheel-speed cap (single source of truth)
             config_path('robot_dimensions.yaml'),
         ],
     )

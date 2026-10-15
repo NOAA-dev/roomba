@@ -62,7 +62,6 @@ DEFAULTS = {
         'rviz': False,
         'lidar': True,
         'imu': True,
-        'max_wheel_speed': 0.20,
     },
     'slam_config': None,
     'ekf_config': None,
@@ -143,9 +142,6 @@ def _check_type(name, value, default):
     elif isinstance(default, bool):
         if not isinstance(value, bool):
             raise StartupConfigError(f"'{name}' must be true or false, got {value!r}")
-    elif isinstance(default, float):
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-            raise StartupConfigError(f"'{name}' must be a number >= 0, got {value!r}")
     elif isinstance(default, int):
         if isinstance(value, bool) or not isinstance(value, int):
             raise StartupConfigError(f"'{name}' must be a whole number, got {value!r}")
@@ -190,8 +186,6 @@ def build_plan(cfg):
     if nodes['joystick']:
         plan.append(Module('joystick', 'joystick.launch.py', {
             'use_sim_time': use_sim_time,
-            # wheel-speed cap applies to the real robot only (0 = unlimited)
-            'max_wheel_speed': 0.0 if sim else mode_cfg['max_wheel_speed'],
         }))
 
     if nodes['slam']:
