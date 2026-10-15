@@ -27,10 +27,10 @@ diff_drive_controller:
     wheel_radius: 0.035
     cmd_vel_timeout: 0.5
     wheel_per_side: 1
-    linear.x.max_velocity: 2.0
-    linear.x.min_velocity: -2.0
-    angular.z.max_velocity: 1.57
-    angular.z.min_velocity: -1.57
+    linear.x.max_velocity: 0.25
+    linear.x.min_velocity: -0.25
+    angular.z.max_velocity: 2.08
+    angular.z.min_velocity: -2.08
     enable_odom_tf: true
     odom_frame_id: "odom"
     base_frame_id: "roomba"

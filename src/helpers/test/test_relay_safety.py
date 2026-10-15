@@ -102,9 +102,9 @@ def test_non_finite_stops():
     assert limit_wheel_speeds(1.0, float('inf'), R, 0.0) == (0.0, 0.0, True)
 
 
-def _node(max_speed=0.20, timeout=0.5):
+def _node(max_speed=0.25, timeout=0.5):
     _Node.overrides = {'robot.drive_wheel.track_width_m': L, 'robot.drive_wheel.radius_m': R,
-                       'max_wheel_speed_m_s': max_speed, 'cmd_timeout_s': timeout}
+                       'limits.max_wheel_speed_m_s': max_speed, 'cmd_timeout_s': timeout}
     _Clock.ns = 0
     return CMDRelayNode()
 
@@ -117,7 +117,7 @@ def test_command_is_limited_end_to_end():
     n = _node()
     n.genrate_cmd_vel(_cmd(0.8, 0.0))
     left, right = n.cmd_vel_publisher_.sent[-1].data
-    assert left * R == pytest.approx(0.20) and right * R == pytest.approx(0.20)
+    assert left * R == pytest.approx(0.25) and right * R == pytest.approx(0.25)
 
 
 def test_stale_command_stops_wheels_once():

@@ -1,14 +1,15 @@
 # =============================================================================
-# Robot geometry -- SINGLE SOURCE OF TRUTH
+# Robot geometry and shared motion limits -- SINGLE SOURCE OF TRUTH
 # =============================================================================
 # Every physical dimension used by the URDF/Xacro, odometry (relay.py), the
 # A* planner and the Gazebo diff-drive plugin comes from this file. Do not
-# hardcode these numbers anywhere else.
+# hardcode these numbers anywhere else. The same goes for `limits` (below): the
+# wheel-speed cap applies in simulation AND on the real robot.
 #
 # Consumers
 #   * Xacro (urdfs/urdf/dimensions.xacro): xacro.load_yaml() on this file; the
 #     launch files pass its path as  robot_dimensions_path:=...
-#   * ROS nodes (cmd_relay, a_star): loaded with <param from="..."/> / a launch
+#   * ROS nodes (cmd_relay, a_star, pure_pursuit, object_avoider): loaded with <param from="..."/> / a launch
 #     parameters list. The `/**` wildcard makes it apply to any node name.
 #
 # Conventions
@@ -49,3 +50,14 @@
         z_m: 0.101                     # [LEGACY] height above wheel centre; not measured; irrelevant to 2D EKF
       lidar:
         x_m: 0.10                      # [LEGACY] hardware URDF only (sim lidar.xacro still uses x = 0)
+    limits:
+      # Per-wheel linear speed cap, sim AND hardware. Enforced in cmd_relay (both
+      # wheel commands are scaled together, so the turn radius is preserved).
+      # Everything else follows from it:
+      #   max linear speed       = max_wheel_speed_m_s                   = 0.25 m/s
+      #   max angular speed      = max_wheel_speed_m_s / (track / 2)     = 2.083 rad/s
+      #                            (pure spin: wheels at +/- the cap, track 0.24 m)
+      #   combined v and w       : |v| + |w| * track / 2  <=  cap  (relay scales both down)
+      # 0.25 m/s is ~84% of the ~0.30 m/s unloaded ESP32 ceiling (PWM_MAX 200), so
+      # there is little headroom under load or battery sag: verify on the floor.
+      max_wheel_speed_m_s: 0.25

@@ -34,6 +34,7 @@
 
     <node pkg="helpers" exec="reactive_explorer" name="object_avoider" output="screen"
           if="$(var enable_reactive_explorer)">
+        <param from="$(find-pkg-share program_bringup)/config/robot_dimensions.yaml"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
     </node>
 

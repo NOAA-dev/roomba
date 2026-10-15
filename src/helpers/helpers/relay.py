@@ -57,12 +57,13 @@ class CMDRelayNode(Node):
         self.L_ = _required_float(self, "robot.drive_wheel.track_width_m")
         self.R_ = _required_float(self, "robot.drive_wheel.radius_m")
 
-        # Safety. Limits are not geometry, so they are plain parameters:
-        #   max_wheel_speed_m_s  per-wheel speed cap, 0 = no limit (set from startup.yaml via modules/joystick.launch.py)
-        #   cmd_timeout_s        stop if no velocity command arrives for this long, 0 = off
-        self.declare_parameter("max_wheel_speed_m_s", 0.0)
+        # Safety.
+        #   limits.max_wheel_speed_m_s  per-wheel speed cap (robot_dimensions.yaml, sim and hardware)
+        #   cmd_timeout_s               stop if no velocity command arrives for this long, 0 = off
+        self.max_wheel_speed = _required_float(self, "limits.max_wheel_speed_m_s")
+        if self.max_wheel_speed <= 0.0:
+            raise RuntimeError("limits.max_wheel_speed_m_s must be > 0")
         self.declare_parameter("cmd_timeout_s", 0.5)
-        self.max_wheel_speed = float(self.get_parameter("max_wheel_speed_m_s").value)
         self.cmd_timeout = float(self.get_parameter("cmd_timeout_s").value)
         self.last_cmd_time = None
         self.cmd_active = False  # a non-zero command is currently being held
