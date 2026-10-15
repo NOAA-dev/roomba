@@ -51,13 +51,4 @@
       lidar:
         x_m: 0.10                      # [LEGACY] hardware URDF only (sim lidar.xacro still uses x = 0)
     limits:
-      # Per-wheel linear speed cap, sim AND hardware. Enforced in cmd_relay (both
-      # wheel commands are scaled together, so the turn radius is preserved).
-      # Everything else follows from it:
-      #   max linear speed       = max_wheel_speed_m_s                   = 0.25 m/s
-      #   max angular speed      = max_wheel_speed_m_s / (track / 2)     = 2.083 rad/s
-      #                            (pure spin: wheels at +/- the cap, track 0.24 m)
-      #   combined v and w       : |v| + |w| * track / 2  <=  cap  (relay scales both down)
-      # 0.25 m/s is ~84% of the ~0.30 m/s unloaded ESP32 ceiling (PWM_MAX 200), so
-      # there is little headroom under load or battery sag: verify on the floor.
       max_wheel_speed_m_s: 0.25
