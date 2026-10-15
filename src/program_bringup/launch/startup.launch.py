@@ -265,13 +265,15 @@ def _as_launch_argument(value):
 def launch_setup(context):
     config_path = LaunchConfiguration('startup_config').perform(context)
     manual_test = LaunchConfiguration('manual_test').perform(context).lower() in ('true', '1', 'yes')
+    manual_rviz = LaunchConfiguration('manual_rviz').perform(context).lower() in ('true', '1', 'yes')
     try:
         cfg = load_startup_config(config_path)
         if manual_test:
             # This explicit opt-in always selects the real robot and leaves only
             # hardware, sensors, controllers, odometry, terminal control, and RViz.
             cfg['mode'] = 'hardware'
-            cfg['hardware']['rviz'] = True
+            cfg['hardware']['rviz'] = manual_rviz
+            cfg['hardware']['lidar'] = False
             cfg['rviz_config'] = 'manual_test.rviz'
             for name in ('joystick', 'slam', 'ekf', 'global_planner', 'local_planner',
                          'map_validator', 'frontier_explorer', 'reactive_explorer',
@@ -307,5 +309,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'manual_test', default_value='false',
             description='Run hardware-only manual motion and odometry testing mode'),
+        DeclareLaunchArgument(
+            'manual_rviz', default_value='false',
+            description='Start local RViz2 in manual mode (requires a graphical display)'),
         OpaqueFunction(function=launch_setup),
     ])
