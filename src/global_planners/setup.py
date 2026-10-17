@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            "a_star = global_planners.a_star_node:main"
+            "hybrid_astar = global_planners.a_star_node:main",
+            "a_star = global_planners.astar2:main",
         ],
     },
 )
