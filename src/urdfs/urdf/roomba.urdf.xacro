@@ -36,7 +36,7 @@
             </geometry>
             <origin xyz="0 0 ${body_center_z}" rpy="0 0 0" />
         </collision>
-        <xacro:box_inertia Mass="10.0" x="${footprint_length}" y="${footprint_width}" z="${body_height}" arr_xyz="0 0 ${body_center_z}" arr_rpy="0 0 0" />
+        <xacro:box_inertia Mass="1.0" x="${footprint_length}" y="${footprint_width}" z="${body_height}" arr_xyz="0 0 ${body_center_z}" arr_rpy="0 0 0" />
     </link>
 
     <xacro:macro name="wheel" params="params">
@@ -54,7 +54,7 @@
                 </geometry>
                 <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
             </collision>
-            <xacro:cylinder_inertia Mass="1.0" r="${wheel_radius}" h="${wheel_thickness}" arr_xyz="0 0 0" arr_rpy="${pi/2} 0 0"/>
+            <xacro:cylinder_inertia Mass="0.2" r="${wheel_radius}" h="${wheel_thickness}" arr_xyz="0 0 0" arr_rpy="${pi/2} 0 0"/>
         </link>
     </xacro:macro>
     
@@ -76,7 +76,7 @@
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </collision>
-        <xacro:solid_sphere_inertia Mass="0.5" r="${caster_radius}" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
+        <xacro:solid_sphere_inertia Mass="0.1" r="${caster_radius}" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
     </link>
 
     <joint name="base_right_wheel_joint" type="continuous">
