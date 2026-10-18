@@ -18,7 +18,7 @@
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </collision>
-        <xacro:cylinder_inertia Mass="0.1" r="${lidar_radius}" h="${lidar_height}" arr_xyz="0 0 0" arr_rpy="0 0 0"/>
+        <xacro:cylinder_inertia Mass="0.05" r="${lidar_radius}" h="${lidar_height}" arr_xyz="0 0 0" arr_rpy="0 0 0"/>
     </link>
 
     <joint name="base_lidar_joint" type="fixed">
