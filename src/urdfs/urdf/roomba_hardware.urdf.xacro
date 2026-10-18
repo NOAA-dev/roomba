@@ -73,7 +73,7 @@
             </geometry>
             <origin xyz="0 0 0" rpy="0 0 0"/>
         </collision>
-        <xacro:solid_sphere_inertia Mass="0.1" r="${caster_radius}" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
+        <xacro:solid_sphere_inertia Mass="1.0" r="${caster_radius}" arr_xyz="0 0 0" arr_rpy="0 0 0"/> 
     </link>
 
     <joint name="base_right_wheel_joint" type="continuous">
