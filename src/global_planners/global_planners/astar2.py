@@ -54,7 +54,6 @@ class AStarNode(Node):
         footprint_length = _required_float(self, "robot.footprint.length_m")
         footprint_width = _required_float(self, "robot.footprint.width_m")
         axle_x = _required_float(self, "robot.drive_wheel.axle_x_m")
-        self.robot_radius = math.hypot(footprint_length / 2.0, footprint_width / 2.0) + abs(axle_x)
 
         # ---- search limits ----
         self.max_expansions = 1000000
