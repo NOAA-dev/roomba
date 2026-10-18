@@ -9,6 +9,7 @@ import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from sensor_msgs.msg import Imu
 from tf2_ros import TransformBroadcaster
 
 
@@ -25,6 +26,25 @@ class ManualMotionTest(Node):
         self.declare_parameter('startup_odom_wait_sec', 5.0)
         self.declare_parameter('max_motion_timeout_sec', 45.0)
         self.declare_parameter('max_velocity_duration_sec', 60.0)
+        # Stop-accuracy tuning: stop early by v*stop_lead_s (command/serial/ramp latency) and
+        # taper speed as v = sqrt(2*decel*remaining), floored at min speed (stick-slip).
+        self.declare_parameter('stop_lead_s', 0.15)
+        self.declare_parameter('approach_decel_m_s2', 0.10)
+        self.declare_parameter('approach_decel_rad_s2', 0.50)
+        self.declare_parameter('min_linear_m_s', 0.03)
+        self.declare_parameter('min_angular_rad_s', 0.25)
+        # Settling: wait until wheel odometry reports standstill before the final report.
+        self.declare_parameter('settle_timeout_sec', 3.0)
+        self.declare_parameter('settle_linear_eps_m_s', 0.002)
+        self.declare_parameter('settle_angular_eps_rad_s', 0.01)
+        self.stop_lead = float(self.get_parameter('stop_lead_s').value)
+        self.dec_lin = float(self.get_parameter('approach_decel_m_s2').value)
+        self.dec_ang = float(self.get_parameter('approach_decel_rad_s2').value)
+        self.min_lin = float(self.get_parameter('min_linear_m_s').value)
+        self.min_ang = float(self.get_parameter('min_angular_rad_s').value)
+        self.settle_timeout = float(self.get_parameter('settle_timeout_sec').value)
+        self.settle_lin_eps = float(self.get_parameter('settle_linear_eps_m_s').value)
+        self.settle_ang_eps = float(self.get_parameter('settle_angular_eps_rad_s').value)
         self.linear_speed = float(self.get_parameter('linear_speed_m_s').value)
         self.angular_speed = float(self.get_parameter('angular_speed_rad_s').value)
         self.max_linear = float(self.get_parameter('max_linear_speed_m_s').value)
@@ -45,6 +65,14 @@ class ManualMotionTest(Node):
         self._motion_thread = None
         self._cmd_pub = self.create_publisher(Twist, '/cmd_vel_unstamped', 10)
         self._odom_sub = self.create_subscription(Odometry, '/odometry', self._on_odom, 10)
+        # Independent cross-checks (optional): BNO055 yaw, and EKF pose if the EKF is running.
+        self._imu_yaw = None          # unwrapped, rad
+        self._imu_last = None
+        self._ekf = None              # (x, y, unwrapped yaw)
+        self._ekf_last = None
+        self._imu_sub = self.create_subscription(Imu, '/imu', self._on_imu, 10)
+        self._ekf_sub = self.create_subscription(
+            Odometry, '/odometry/filtered', self._on_ekf, 10)
         self._tf_broadcaster = TransformBroadcaster(self)
         self._tf_timer = self.create_timer(0.05, self._publish_odom_tf)
 
@@ -52,11 +80,31 @@ class ManualMotionTest(Node):
     def _wrap(angle):
         return math.atan2(math.sin(angle), math.cos(angle))
 
+    @staticmethod
+    def _yaw_of(q):
+        return math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+
+    def _on_imu(self, msg):
+        yaw = self._yaw_of(msg.orientation)
+        with self._lock:
+            self._imu_yaw = yaw if self._imu_last is None else \
+                self._imu_yaw + self._wrap(yaw - self._imu_last)
+            self._imu_last = yaw
+
+    def _on_ekf(self, msg):
+        yaw = self._yaw_of(msg.pose.pose.orientation)
+        with self._lock:
+            prev = self._ekf[2] if self._ekf is not None else None
+            unwrapped = yaw if prev is None else prev + self._wrap(yaw - self._ekf_last)
+            self._ekf_last = yaw
+            self._ekf = (msg.pose.pose.position.x, msg.pose.pose.position.y, unwrapped)
+
+    def _aux_snapshot(self):
+        with self._lock:
+            return self._imu_yaw, self._ekf
+
     def _on_odom(self, msg):
-        q = msg.pose.pose.orientation
-        sin_yaw = 2.0 * (q.w * q.z + q.x * q.y)
-        cos_yaw = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-        yaw = math.atan2(sin_yaw, cos_yaw)
+        yaw = self._yaw_of(msg.pose.pose.orientation)
         with self._lock:
             if self._last_yaw is None:
                 self._yaw_unwrapped = yaw
@@ -111,17 +159,35 @@ class ManualMotionTest(Node):
             self._publish_velocity()
             time.sleep(0.02)
 
-    @staticmethod
-    def _print_measurement(kind, requested, measured, unit):
-        error = measured - requested
-        print(f'{kind}: requested {requested:.3f} {unit}, measured {measured:.3f} {unit}, '
-              f'error {error:+.3f} {unit}', flush=True)
+    def _settle(self):
+        """Wait until wheel odometry reports standstill for 0.3 s (or timeout)."""
+        deadline = time.monotonic() + self.settle_timeout
+        still_since = None
+        while time.monotonic() < deadline:
+            odom, _ = self._snapshot()
+            now = time.monotonic()
+            if odom is not None and abs(odom[4]) < self.settle_lin_eps \
+                    and abs(odom[5]) < self.settle_ang_eps:
+                still_since = still_since or now
+                if now - still_since >= 0.3:
+                    return True
+            else:
+                still_since = None
+            time.sleep(0.05)
+        return False
+
+    def _progress(self, kind, odom, start):
+        if kind == 'straight':
+            return ((odom[0] - start[0]) * math.cos(start[2])
+                    + (odom[1] - start[1]) * math.sin(start[2]))
+        return odom[3] - start[3]
 
     def _closed_loop(self, kind, target, speed):
         start = self._wait_for_odom()
+        imu0, ekf0 = self._aux_snapshot()
         start_time = time.monotonic()
         timeout = min(self.max_motion_timeout, max(5.0, abs(target) / max(abs(speed), 0.02) * 3.0 + 5.0))
-        initial_yaw_unwrapped = start[3]
+        sign = math.copysign(1.0, target)
         measured = 0.0
         failure = None
         try:
@@ -137,30 +203,62 @@ class ManualMotionTest(Node):
                 if odom is None or received is None or now - received > self.odom_timeout:
                     failure = f'{kind} aborted: /odometry is stale (>{self.odom_timeout:.1f} s)'
                     break
+                measured = self._progress(kind, odom, start)
                 if kind == 'straight':
-                    dx, dy = odom[0] - start[0], odom[1] - start[1]
-                    measured = dx * math.cos(start[2]) + dy * math.sin(start[2])
-                    done = measured >= target if target >= 0 else measured <= target
-                    linear, angular = math.copysign(abs(speed), target), 0.0
+                    v_now, decel, v_min = abs(odom[4]), self.dec_lin, self.min_lin
                 else:
-                    measured = odom[3] - initial_yaw_unwrapped
-                    done = measured >= target if target >= 0 else measured <= target
-                    linear, angular = 0.0, math.copysign(abs(speed), target)
-                if done:
+                    v_now, decel, v_min = abs(odom[5]), self.dec_ang, self.min_ang
+                remaining = sign * (target - measured)
+                if remaining <= v_now * self.stop_lead:  # stop early by latency travel
                     break
-                self._publish_velocity(linear, angular)
+                cmd = min(abs(speed), max(v_min, math.sqrt(2.0 * decel * remaining)))
+                if kind == 'straight':
+                    self._publish_velocity(sign * cmd, 0.0)
+                else:
+                    self._publish_velocity(0.0, sign * cmd)
                 time.sleep(0.05)
         finally:
             self._stop()
-        if kind == 'turn':
-            target, measured = math.degrees(target), math.degrees(measured)
-            unit = 'deg'
-        else:
-            target, measured = target * 100.0, measured * 100.0
-            unit = 'cm'
-        self._print_measurement(kind, target, measured, unit)
+        at_stop = measured
+        settled = None
+        if failure is None:
+            settled = self._settle()
+            odom, _ = self._snapshot()
+            if odom is not None:
+                measured = self._progress(kind, odom, start)
+        imu1, ekf1 = self._aux_snapshot()
+        self._report(kind, target, at_stop, measured, settled, start, imu0, imu1, ekf0, ekf1)
         if failure:
             print(failure, flush=True)
+
+    def _report(self, kind, target, at_stop, measured, settled, start, imu0, imu1, ekf0, ekf1):
+        # Primary figure = wheel odometry after standstill (not the value at the stop instant).
+        if kind == 'turn':
+            scale, unit = 180.0 / math.pi, 'deg'
+        else:
+            scale, unit = 100.0, 'cm'
+        t, m, s = target * scale, measured * scale, at_stop * scale
+        note = '' if settled is not False else ' (did not settle within timeout)'
+        print(f'{kind}: requested {t:.3f} {unit}, settled wheel-odom {m:.3f} {unit}, '
+              f'error {m - t:+.3f} {unit}; at stop cmd {s:.3f} {unit}, '
+              f'coast {m - s:+.3f} {unit}{note}', flush=True)
+        extra = []
+        if imu0 is not None and imu1 is not None:
+            imu_deg = math.degrees(imu1 - imu0)
+            if kind == 'turn':
+                extra.append(f'IMU yaw {imu_deg:.3f} deg (err {imu_deg - t:+.3f})')
+            else:
+                extra.append(f'IMU heading drift {imu_deg:+.2f} deg')
+        else:
+            extra.append('IMU: no /imu data')
+        if ekf0 is not None and ekf1 is not None:
+            if kind == 'turn':
+                e = (ekf1[2] - ekf0[2]) * scale
+            else:
+                e = ((ekf1[0] - ekf0[0]) * math.cos(ekf0[2])
+                     + (ekf1[1] - ekf0[1]) * math.sin(ekf0[2])) * scale
+            extra.append(f'EKF {e:.3f} {unit} (err {e - t:+.3f})')
+        print('  cross-check: ' + ' | '.join(extra), flush=True)
 
     def _velocity_for(self, linear, angular, duration):
         if not all(math.isfinite(v) for v in (linear, angular, duration)):
