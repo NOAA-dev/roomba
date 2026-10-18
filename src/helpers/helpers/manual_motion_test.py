@@ -2,7 +2,6 @@
 """Odometry-feedback terminal controls for manual hardware testing."""
 
 import math
-import os
 import threading
 import time
 
@@ -27,15 +26,6 @@ class ManualMotionTest(Node):
         self.declare_parameter('startup_odom_wait_sec', 5.0)
         self.declare_parameter('max_motion_timeout_sec', 45.0)
         self.declare_parameter('max_velocity_duration_sec', 60.0)
-        # Logging only (no control effect): wait for standstill, write per-run CSV.
-        self.declare_parameter('log_dir', os.path.expanduser('~/roomba_motion_logs'))
-        self.declare_parameter('settle_timeout_sec', 3.0)
-        self.declare_parameter('settle_linear_eps_m_s', 0.002)
-        self.declare_parameter('settle_angular_eps_rad_s', 0.01)
-        self.settle_timeout = float(self.get_parameter('settle_timeout_sec').value)
-        self.settle_lin_eps = float(self.get_parameter('settle_linear_eps_m_s').value)
-        self.settle_ang_eps = float(self.get_parameter('settle_angular_eps_rad_s').value)
-        self.log_dir = str(self.get_parameter('log_dir').value)
         self.linear_speed = float(self.get_parameter('linear_speed_m_s').value)
         self.angular_speed = float(self.get_parameter('angular_speed_rad_s').value)
         self.max_linear = float(self.get_parameter('max_linear_speed_m_s').value)
@@ -56,16 +46,13 @@ class ManualMotionTest(Node):
         self._motion_thread = None
         self._cmd_pub = self.create_publisher(Twist, '/cmd_vel_unstamped', 10)
         self._odom_sub = self.create_subscription(Odometry, '/odometry', self._on_odom, 10)
-        # Independent cross-checks (optional): BNO055 yaw, and EKF pose if the EKF is running.
-        self._imu_yaw = None          # unwrapped, rad
+        # Read-only cross-checks for the report (no effect on control).
+        self._imu_yaw = None
         self._imu_last = None
-        self._gyro_yaw = None         # integral of gyro z, rad
-        self._gyro_t = None
-        self._ekf = None              # (x, y, unwrapped yaw)
+        self._ekf = None
         self._ekf_last = None
-        self._imu_sub = self.create_subscription(Imu, '/imu', self._on_imu, 10)
-        self._ekf_sub = self.create_subscription(
-            Odometry, '/odometry/filtered', self._on_ekf, 10)
+        self.create_subscription(Imu, '/imu', self._on_imu, 10)
+        self.create_subscription(Odometry, '/odometry/filtered', self._on_ekf, 10)
         self._tf_broadcaster = TransformBroadcaster(self)
         self._tf_timer = self.create_timer(0.05, self._publish_odom_tf)
 
@@ -79,28 +66,36 @@ class ManualMotionTest(Node):
 
     def _on_imu(self, msg):
         yaw = self._yaw_of(msg.orientation)
-        now = time.monotonic()
         with self._lock:
             self._imu_yaw = yaw if self._imu_last is None else \
                 self._imu_yaw + self._wrap(yaw - self._imu_last)
             self._imu_last = yaw
-            if self._gyro_t is None:
-                self._gyro_yaw = 0.0
-            else:
-                self._gyro_yaw += msg.angular_velocity.z * (now - self._gyro_t)
-            self._gyro_t = now
 
     def _on_ekf(self, msg):
         yaw = self._yaw_of(msg.pose.pose.orientation)
         with self._lock:
-            prev = self._ekf[2] if self._ekf is not None else None
-            unwrapped = yaw if prev is None else prev + self._wrap(yaw - self._ekf_last)
+            unwrapped = yaw if self._ekf is None else self._ekf[2] + self._wrap(yaw - self._ekf_last)
             self._ekf_last = yaw
             self._ekf = (msg.pose.pose.position.x, msg.pose.pose.position.y, unwrapped)
 
     def _aux_snapshot(self):
         with self._lock:
-            return self._imu_yaw, self._gyro_yaw, self._ekf
+            return self._imu_yaw, self._ekf
+
+    def _settle(self):
+        # Wait (max 3 s) for wheel odometry to report standstill for 0.3 s.
+        deadline = time.monotonic() + 3.0
+        still_since = None
+        while time.monotonic() < deadline:
+            odom, _ = self._snapshot()
+            now = time.monotonic()
+            if odom is not None and abs(odom[4]) < 0.002 and abs(odom[5]) < 0.01:
+                still_since = still_since or now
+                if now - still_since >= 0.3:
+                    return
+            else:
+                still_since = None
+            time.sleep(0.05)
 
     def _on_odom(self, msg):
         yaw = self._yaw_of(msg.pose.pose.orientation)
@@ -158,51 +153,44 @@ class ManualMotionTest(Node):
             self._publish_velocity()
             time.sleep(0.02)
 
-    def _settle(self, on_tick):
-        """Wait until wheel odometry reports standstill for 0.3 s (or timeout)."""
-        deadline = time.monotonic() + self.settle_timeout
-        still_since = None
-        while time.monotonic() < deadline:
-            odom, _ = self._snapshot()
-            now = time.monotonic()
-            if odom is not None and abs(odom[4]) < self.settle_lin_eps \
-                    and abs(odom[5]) < self.settle_ang_eps:
-                still_since = still_since or now
-                if now - still_since >= 0.3:
-                    return True
-            else:
-                still_since = None
-            on_tick()
-            time.sleep(0.05)
-        return False
+    @staticmethod
+    def _print_measurement(kind, requested, measured, unit):
+        error = measured - requested
+        print(f'{kind}: requested {requested:.3f} {unit}, measured {measured:.3f} {unit}, '
+              f'error {error:+.3f} {unit}', flush=True)
 
-    def _rel(self, kind, odom, start, ekf, ekf0, imu, imu0, gyro, gyro0):
-        """Progress since start from each source: (dist, yaw) for wheel/EKF, yaw for IMU/gyro."""
-        def dist(pose, ref):
-            return ((pose[0] - ref[0]) * math.cos(ref[2]) + (pose[1] - ref[1]) * math.sin(ref[2]))
-        wheel = (dist(odom, start) if odom else None, odom[3] - start[3] if odom else None)
-        e = (dist(ekf, ekf0), ekf[2] - ekf0[2]) if ekf and ekf0 else (None, None)
-        i = imu - imu0 if imu is not None and imu0 is not None else None
-        g = gyro - gyro0 if gyro is not None and gyro0 is not None else None
-        return wheel, e, i, g
+    @staticmethod
+    def _print_settled(kind, unit, start, stop_odom, final_odom, imu0, imu1, ekf0, ekf1):
+        k = 180.0 / math.pi if kind == 'turn' else 100.0
+
+        def along(pose, ref):
+            return (pose[0] - ref[0]) * math.cos(ref[2]) + (pose[1] - ref[1]) * math.sin(ref[2])
+
+        def main(pose, ref):  # distance (straight) or unwrapped yaw change (turn)
+            return (pose[3] - ref[3] if kind == 'turn' else along(pose, ref)) * k
+
+        if stop_odom is not None and final_odom is not None:
+            print(f'  odom at stop cmd: {main(stop_odom, start):.3f} {unit} | '
+                  f'odom settled: {main(final_odom, start):.3f} {unit}', flush=True)
+        heading = []
+        if final_odom is not None:
+            heading.append(f'odom {math.degrees(final_odom[3] - start[3]):+.2f}')
+        if imu0 is not None and imu1 is not None:
+            heading.append(f'IMU {math.degrees(imu1 - imu0):+.2f}')
+        if ekf0 is not None and ekf1 is not None:
+            heading.append(f'EKF {math.degrees(ekf1[2] - ekf0[2]):+.2f}')
+        print('  heading change (deg): ' + (' | '.join(heading) or 'n/a'), flush=True)
+        if kind == 'straight' and ekf0 is not None and ekf1 is not None:
+            print(f'  EKF settled distance: {along(ekf1, ekf0) * k:.3f} {unit}', flush=True)
 
     def _closed_loop(self, kind, target, speed):
         start = self._wait_for_odom()
-        imu0, gyro0, ekf0 = self._aux_snapshot()
         start_time = time.monotonic()
         timeout = min(self.max_motion_timeout, max(5.0, abs(target) / max(abs(speed), 0.02) * 3.0 + 5.0))
         initial_yaw_unwrapped = start[3]
+        imu0, ekf0 = self._aux_snapshot()
         measured = 0.0
         failure = None
-        log = self._open_log(kind, target)
-
-        def sample(phase, cmd):
-            odom, _ = self._snapshot()
-            imu, gyro, ekf = self._aux_snapshot()
-            wheel, e, i, g = self._rel(kind, odom, start, ekf, ekf0, imu, imu0, gyro, gyro0)
-            self._log_row(log, time.monotonic() - start_time, phase, cmd, odom, wheel, e, i, g)
-            return wheel, e, i, g
-
         try:
             while True:
                 if self._cancel_motion.is_set():
@@ -227,76 +215,25 @@ class ManualMotionTest(Node):
                     linear, angular = 0.0, math.copysign(abs(speed), target)
                 if done:
                     break
-                sample('run', linear if kind == 'straight' else angular)
                 self._publish_velocity(linear, angular)
                 time.sleep(0.05)
         finally:
             self._stop()
-        # Logging only: record the stop instant, then keep sampling until standstill.
-        at_stop = sample('stop', 0.0)
-        settled = None
+        stop_odom, _ = self._snapshot()
         if failure is None:
-            settled = self._settle(lambda: sample('settle', 0.0))
-        final = sample('final', 0.0)
-        if log:
-            log.close()
-        self._report(kind, target, at_stop, final, settled)
+            self._settle()
+        final_odom, _ = self._snapshot()
+        imu1, ekf1 = self._aux_snapshot()
+        if kind == 'turn':
+            target, measured = math.degrees(target), math.degrees(measured)
+            unit = 'deg'
+        else:
+            target, measured = target * 100.0, measured * 100.0
+            unit = 'cm'
+        self._print_measurement(kind, target, measured, unit)
+        self._print_settled(kind, unit, start, stop_odom, final_odom, imu0, imu1, ekf0, ekf1)
         if failure:
             print(failure, flush=True)
-
-    def _open_log(self, kind, target):
-        if not self.log_dir:
-            return None
-        try:
-            os.makedirs(self.log_dir, exist_ok=True)
-            path = os.path.join(self.log_dir, time.strftime(f'%Y%m%d_%H%M%S_{kind}_{target:+.3f}.csv'))
-            f = open(path, 'w')
-            f.write('t_s,phase,cmd,wheel_v,wheel_w,wheel_dist_m,wheel_yaw_rad,ekf_dist_m,ekf_yaw_rad,'
-                    'imu_yaw_rad,gyro_yaw_rad\n')
-            print(f'logging to {path}', flush=True)
-            return f
-        except OSError as exc:
-            print(f'log disabled: {exc}', flush=True)
-            return None
-
-    @staticmethod
-    def _log_row(log, t, phase, cmd, odom, wheel, e, i, g):
-        if log is None:
-            return
-        vals = [odom[4] if odom else None, odom[5] if odom else None, wheel[0], wheel[1],
-                e[0], e[1], i, g]
-        log.write(f'{t:.3f},{phase},{cmd:.3f},' + ','.join('' if v is None else f'{v:.6f}' for v in vals)
-                  + '\n')
-
-    def _report(self, kind, target, at_stop, final, settled):
-        """Print wheel/EKF/IMU/gyro progress at the stop instant and after standstill."""
-        turn = kind == 'turn'
-        k, unit = (180.0 / math.pi, 'deg') if turn else (100.0, 'cm')
-        idx = 1 if turn else 0
-        t = target * k
-
-        def pick(snap):  # wheel, ekf, imu, gyro in report units (distance sources None for IMU/gyro)
-            wheel, e, i, g = snap
-            vals = (wheel[idx], e[idx], i, g) if turn else (wheel[0], e[0], None, None)
-            return [None if v is None else v * k for v in vals]
-
-        names = ['wheel', 'EKF', 'IMU', 'gyro-int'] if turn else ['wheel', 'EKF']
-        a, f = pick(at_stop), pick(final)
-        print(f'{kind}: requested {t:.3f} {unit}' + ('' if settled is not False else
-              ' (did not settle within timeout)'), flush=True)
-        for n, va, vf in zip(names, a, f):
-            if vf is None:
-                print(f'  {n:9s} n/a', flush=True)
-            else:
-                at = 'n/a' if va is None else f'{va:.3f}'
-                coast = '' if va is None else f', coast {vf - va:+.3f}'
-                print(f'  {n:9s} at stop {at} -> settled {vf:.3f} {unit}, err {vf - t:+.3f}{coast}',
-                      flush=True)
-        if not turn:
-            wheel, e, i, g = final
-            drift = [f'{n} {math.degrees(v):+.2f}' for n, v in
-                     (('wheel', wheel[1]), ('EKF', e[1]), ('IMU', i), ('gyro-int', g)) if v is not None]
-            print('  heading drift (deg): ' + ' | '.join(drift), flush=True)
 
     def _velocity_for(self, linear, angular, duration):
         if not all(math.isfinite(v) for v in (linear, angular, duration)):
