@@ -161,7 +161,7 @@ def _resolve_file(name, folder, what):
 # ----------------------------------------------------------------------------
 #  Deciding what to start
 # ----------------------------------------------------------------------------
-def build_plan(cfg, manual_test=False):
+def build_plan(cfg, manual_test=False, manual_autonomy=False):
     """Turn the checked config into the ordered list of modules to include."""
     share = get_package_share_directory(PACKAGE)
     sim = cfg['mode'] == 'sim'
@@ -217,6 +217,7 @@ def build_plan(cfg, manual_test=False):
     if manual_test:
         plan.append(Module('manual_test', 'manual_test.launch.xml', {
             'use_sim_time': False,
+            'autonomy': manual_autonomy,
         }))
 
     if nodes['ekf']:
@@ -265,6 +266,7 @@ def _as_launch_argument(value):
 def launch_setup(context):
     config_path = LaunchConfiguration('startup_config').perform(context)
     manual_test = LaunchConfiguration('manual_test').perform(context).lower() in ('true', '1', 'yes')
+    manual_autonomy = LaunchConfiguration('manual_autonomy').perform(context).lower() in ('true', '1', 'yes')
     manual_rviz = LaunchConfiguration('manual_rviz').perform(context).lower() in ('true', '1', 'yes')
     try:
         cfg = load_startup_config(config_path)
@@ -275,11 +277,18 @@ def launch_setup(context):
             cfg['hardware']['rviz'] = manual_rviz
             cfg['hardware']['lidar'] = False
             cfg['rviz_config'] = 'manual_test.rviz'
+            if manual_autonomy:
+                cfg['rviz_config'] = None  # default.rviz: map, scan, path, 2D Goal Pose tool
+                cfg['hardware']['lidar'] = True
             for name in ('joystick', 'slam', 'ekf', 'global_planner', 'local_planner',
                          'map_validator', 'frontier_explorer', 'reactive_explorer',
                          'manager', 'data_logger'):
                 cfg['nodes'][name] = False
-        plan = build_plan(cfg, manual_test=manual_test)
+        if manual_test and manual_autonomy:
+            # SLAM + EKF + A* + pure pursuit + map_validator; no manager/explorers/joystick/logger.
+            for name in ('slam', 'ekf', 'global_planner', 'local_planner', 'map_validator'):
+                cfg['nodes'][name] = True
+        plan = build_plan(cfg, manual_test=manual_test, manual_autonomy=manual_autonomy)
     except StartupConfigError as error:
         message = f'[startup] {error}'
         return [LogInfo(msg=message), Shutdown(reason=message)]
@@ -312,5 +321,9 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'manual_rviz', default_value='false',
             description='Start local RViz2 in manual mode (requires a graphical display)'),
+        DeclareLaunchArgument(
+            'manual_autonomy', default_value='true',
+            description='With manual_test: also run lidar, SLAM, EKF, A*, pure pursuit and '
+                        'map_validator (goals from RViz). false = odometry-only test mode'),
         OpaqueFunction(function=launch_setup),
     ])
