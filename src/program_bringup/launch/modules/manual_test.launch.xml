@@ -2,10 +2,26 @@
 <!-- Keep the relay with the hardware launch; run the interactive client via ros2 run in its own terminal. -->
 <launch>
     <arg name="use_sim_time" default="false"/>
+    <arg name="autonomy" default="false"
+         description="Also run twist_mux and manual_test_bringup (SLAM + A* + pure pursuit via RViz goals)"/>
     <arg name="robot_dimensions" default="$(find-pkg-share program_bringup)/config/robot_dimensions.yaml"/>
 
     <node pkg="helpers" exec="cmd_relay" name="cmd_relay" output="screen">
         <param name="use_sim_time" value="$(var use_sim_time)"/>
         <param from="$(var robot_dimensions)"/>
     </node>
+
+    <!-- Autonomy: planners publish /autonomous_cmd_vel; twist_mux forwards it to /cmd_vel_unstamped.
+         Do not run manual_motion_test at the same time: it also broadcasts odom->roomba TF (clashes with the EKF). -->
+    <node pkg="twist_mux" exec="twist_mux" name="twist_mux" output="screen" if="$(var autonomy)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(find-pkg-share program_bringup)/config/twist_mux_topics.yaml"/>
+        <param from="$(find-pkg-share program_bringup)/config/twist_mux_locks.yaml"/>
+        <remap from="/cmd_vel_out" to="/cmd_vel_unstamped"/>
+    </node>
+
+    <!-- Replaces manager_node here: activates slam_toolbox + map_saver_server and enables
+         map_validator, a_star, pure_pursuit. -->
+    <node pkg="helpers" exec="manual_test_bringup" name="manual_test_bringup" output="screen"
+          if="$(var autonomy)"/>
 </launch>
