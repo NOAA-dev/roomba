@@ -204,7 +204,7 @@ class PurePursuitNode(Node):
         self.clear_default = p("clear_default", 10.0)
         # Hardware URDF: lidar 0.10 m ahead of base_link. Sim lidar.xacro uses x = 0 ->
         # run the sim with lidar_offset_x:=0.0.
-        self.lidar_offset_x = p("lidar_offset_x", 0.1)
+        self.lidar_offset_x = p("lidar_offset_x", 0.0)
         rate = p("control_rate_hz", 50.0)
 
         # ---- state ----
