@@ -50,3 +50,28 @@ def test_pre_multiply_would_be_wrong():
     q_ws = R.from_euler('z', 0.4) * R.from_matrix(MOUNT_MATRIX).inv()
     wrong = (R.from_matrix(MOUNT_MATRIX) * q_ws).as_euler('zyx')[0]
     assert not np.isclose(wrong, 0.4)
+
+
+def test_quat_norm_check():
+    from helpers.bno055 import quat_norm_ok
+    assert quat_norm_ok(1.0, 0.0, 0.0, 0.0)
+    assert not quat_norm_ok(0.0, 0.0, 0.0, 0.0)      # all-zero startup sample
+    assert not quat_norm_ok(0.5, 0.0, 0.0, 0.0)
+
+
+def test_zero_yaw_is_startup_independent():
+    from helpers.bno055 import mount_orientation, yaw_of, zero_yaw
+    for chip_h in (0.0, 1.0, -2.5, 3.0):             # arbitrary chip heading at startup
+        def q(th):
+            return mount_orientation(R.from_euler('z', chip_h + th) * R.from_matrix(MOUNT_MATRIX).inv())
+        ref = yaw_of(q(0.0))
+        assert np.isclose(yaw_of(zero_yaw(q(0.0), ref)), 0.0, atol=1e-9)
+        # a later CCW turn of +0.5 rad reads +0.5 regardless of the starting heading
+        assert np.isclose(yaw_of(zero_yaw(q(0.5), ref)), 0.5, atol=1e-9)
+
+
+def test_zero_yaw_keeps_roll_pitch():
+    from helpers.bno055 import zero_yaw
+    q = R.from_euler('ZYX', [1.0, 0.1, -0.2])
+    out = zero_yaw(q, 1.0).as_euler('ZYX')
+    assert np.allclose(out[1:], [0.1, -0.2], atol=1e-9) and np.isclose(out[0], 0.0, atol=1e-9)
