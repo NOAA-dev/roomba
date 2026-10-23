@@ -57,6 +57,30 @@ def mount_vector(v_imu):
     return MOUNT_MATRIX @ np.asarray(v_imu, dtype=float)
 
 
+def quat_norm_ok(w, x, y, z, tol=0.1):
+    """True if the raw chip quaternion is a valid unit quaternion.
+
+    Right after a mode switch the fusion output can be all zeros or
+    unnormalised; such a sample must never be used (or used as a yaw zero).
+    """
+    return abs(float(np.sqrt(w * w + x * x + y * y + z * z)) - 1.0) <= tol
+
+
+def yaw_of(q):
+    """Heading (rad, about world Z) of a robot-in-world rotation."""
+    m = q.as_matrix()
+    return float(np.arctan2(m[1, 0], m[0, 0]))  # intrinsic ZYX yaw
+
+
+def zero_yaw(q_link, yaw_ref):
+    """Rotate the world frame about Z so that heading `yaw_ref` becomes 0.
+
+    Only the world-frame yaw changes; roll/pitch and body-frame vectors
+    (gyro, accel) are untouched.
+    """
+    return R.from_euler('z', -yaw_ref) * q_link
+
+
 def mount_orientation(q_sensor):
     """Sensor-in-world rotation -> robot-body-in-world rotation (post-multiply)."""
     return q_sensor * R.from_matrix(MOUNT_MATRIX)
@@ -87,6 +111,10 @@ class BNO055Node(Node):
         self.declare_parameter('publish_rate', 50.0)  # 50 Hz
         self.declare_parameter('accel_filter_alpha', 0.2)  # EMA smoothing factor, 0-1
         self.declare_parameter('publish_debug', False)  # bno/yaw, bno/gyro, bno/accel
+        # IMUPLUS has no absolute heading, so publish yaw relative to the
+        # heading captured once the fusion has settled after startup.
+        self.declare_parameter('settle_time_s', 1.5)
+        self.declare_parameter('zero_yaw_on_start', True)
 
         self.bus_num = self.get_parameter('i2c_bus').value
         self.addr = self.get_parameter('i2c_address').value
@@ -94,6 +122,10 @@ class BNO055Node(Node):
         pub_rate = self.get_parameter('publish_rate').value
         self.accel_alpha = self.get_parameter('accel_filter_alpha').value
         self.publish_debug = self.get_parameter('publish_debug').value
+        self.settle_time = float(self.get_parameter('settle_time_s').value)
+        self.zero_yaw_on_start = bool(self.get_parameter('zero_yaw_on_start').value)
+        self._yaw_ref = None      # heading (rad) captured after settling
+        self._t_ready = None      # monotonic time after which samples are used
 
         # Exponential-moving-average state for linear acceleration, applied
         # after mounting-rotation so it's smoothing in the published (imu_link)
@@ -116,6 +148,8 @@ class BNO055Node(Node):
             )
             return
 
+        self._t_ready = time.monotonic() + max(0.0, self.settle_time)
+
         # Timer setup (50 Hz -> 0.02s period)
         timer_period = 1.0 / pub_rate
         self.timer = self.create_timer(timer_period, self.publish_imu)
@@ -125,8 +159,8 @@ class BNO055Node(Node):
             f'(accel EMA alpha={self.accel_alpha}).'
         )
         self.get_logger().info(
-            'Yaw is relative to the heading at startup and will drift slowly. '
-            'Keep the robot still for 1-2 s after launch so the gyro can settle.'
+            f'Yaw is zeroed after a {self.settle_time:.1f} s settle and will drift slowly. '
+            'Keep the robot still during startup.'
         )
 
     def init_bno055(self):
@@ -226,6 +260,13 @@ class BNO055Node(Node):
 
             # Fused quaternion (W, X, Y, Z order on the chip)
             w_raw, x_raw, y_raw, z_raw = struct.unpack('<hhhh', raw[12:20])
+            # Drop invalid (zero / unnormalised) fusion output
+            if not quat_norm_ok(w_raw * SCALE_QUAT, x_raw * SCALE_QUAT,
+                                y_raw * SCALE_QUAT, z_raw * SCALE_QUAT):
+                return
+            # Let the fusion / gyro bias settle before publishing anything
+            if self._t_ready is not None and time.monotonic() < self._t_ready:
+                return
             q_sensor = R.from_quat([x_raw * SCALE_QUAT, y_raw * SCALE_QUAT,
                                     z_raw * SCALE_QUAT, w_raw * SCALE_QUAT])
 
@@ -238,6 +279,12 @@ class BNO055Node(Node):
             # -------------------------------------------------------------
             # Orientation: robot body in world (post-multiplied mounting rotation)
             q_link = mount_orientation(q_sensor)
+            if self.zero_yaw_on_start:
+                if self._yaw_ref is None:
+                    self._yaw_ref = yaw_of(q_link)
+                    self.get_logger().info(
+                        f'BNO055 yaw zeroed at startup (raw heading {np.degrees(self._yaw_ref):.1f} deg).')
+                q_link = zero_yaw(q_link, self._yaw_ref)
             qx, qy, qz, qw = q_link.as_quat()
 
             # Vector quantities: v_robot = MOUNT_MATRIX @ v_imu
