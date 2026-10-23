@@ -312,18 +312,13 @@ class MAPValidatorNode(Node):
         if total_cells == 0:
             return
 
-        p_explored = 100.0 * ((num_of_occupied + num_of_free) / total_cells)
-        p_unknown = 100.0 * (num_of_unknown / total_cells)
+        self.send_to_validate = True
+        self.keep_exploring = False
 
-        if p_explored >= 60.0:
-            self.send_to_validate = True
-            self.keep_exploring = False
-            if self.map_ss.data:
-                self.prev_map_ss = self.map_ss
-            self.map_ss = self.map_
-        else:
-            self.keep_exploring = True
-            self.send_to_validate = False
+        if self.map_ss.data:
+            self.prev_map_ss = self.map_ss
+
+        self.map_ss = self.map_
 
     def validate_map(self):
         if not self.enabled or self.exploration_done:
