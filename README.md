@@ -2,9 +2,19 @@
 
 A small autonomous mobile robot that maps, plans and drives on its own. A **Raspberry Pi 5** runs ROS 2 (SLAM, planning, control); an **ESP32** closes the wheel-speed loops. The same launch file runs the full stack in **Gazebo simulation** or on the **real robot**.
 
-> **Status:** the software stack is implemented end to end. Hardware validation so far covers the ESP32 motor firmware (closed-loop and floor tests). SLAM, planning and autonomous driving on the real robot are still being validated — see [Project status](#project-status).
+> **Status:** the full stack runs on the real robot. Motor firmware, wheel odometry and the EKF are calibrated on the floor, and point-to-point navigation has been tested. **Still to be tested: goal-reaching accuracy and precision** — see [Project status](#project-status).
 
 **Install, run, calibrate →** [`SETUP_AND_CALIBRATION.md`](SETUP_AND_CALIBRATION.md)
+
+## Live maneuvering
+
+![Robot navigating live: RViz map and path next to the real robot](docs/images/live-maneuvering.gif)
+
+| Live mapping | Obstacle-aware maneuver | Room-to-room navigation |
+|---|---|---|
+| ![Live mapping](docs/images/live-mapping.jpg) | ![Obstacle-aware maneuver](docs/images/obstacle-aware-maneuver.jpg) | ![Room-to-room navigation](docs/images/room-to-room-navigation.jpg) |
+
+*RViz (occupancy grid, lidar scan in red, planned path) alongside the real robot. Stills are taken from the project showcase video.*
 
 ---
 
@@ -100,13 +110,13 @@ Prerequisites, ROS packages, udev rules, firmware flashing, hardware bring-up an
 
 | Area | Implemented | Hardware-validated |
 |---|---|---|
-| ESP32 firmware (PI loops, ramps, watchdog) | ✅ | ✅ closed-loop and floor tests (reported by the author) |
-| Wheel odometry, EKF, IMU | ✅ | ⏳ calibration in progress |
-| SLAM, validator, explorers | ✅ | ⏳ |
-| A\*, pure pursuit, avoidance | ✅ | ⏳ (RViz-goal test mode available) |
+| ESP32 firmware (PI loops, ramps, watchdog) | ✅ | ✅ closed-loop and floor tests |
+| Wheel odometry, EKF, IMU | ✅ | ✅ on-floor calibration done |
+| SLAM, validator, explorers | ✅ | ✅ live mapping and exploration demonstrated |
+| A\*, pure pursuit, avoidance | ✅ | ✅ point-to-point navigation tested · ⏳ **goal-reaching accuracy and precision** (remaining test) |
 | Camera | simulation model only | — |
 
-Known open items: encoder constants in firmware (5075 / 5077) differ from the documented 5070, and some Python dependencies are not yet declared in `package.xml` (the setup guide lists them explicitly).
+Known open items: the encoder constants in the firmware (5075 / 5077) differ from the 5070 used in the comments and calibration tools (confirm they are intentional), and some Python dependencies are not yet declared in `package.xml` (the setup guide lists them explicitly).
 
 ## License
 
