@@ -399,6 +399,6 @@ These cover configuration consistency and relay/IMU logic only. They do not test
 
 - First run every new firmware or wiring change with the **wheels lifted**.
 - Keep the robot in a clear area for floor tests; stay within reach of the power switch.
-- Autonomy is not yet hardware-validated: supervise every autonomous run.
+- Point-to-point navigation has been tested on the robot, but goal-reaching accuracy and precision have not been measured yet: keep supervising every autonomous run.
 - Keep the 0.25 m/s cap until the odometry and obstacle behaviour have been verified at that speed; the robot's unloaded top speed on the author's firmware is about 0.30 m/s, so there is little headroom under load or battery sag.
 - Do not move the lidar/ESP32 USB cables between ports without updating the udev rules.
