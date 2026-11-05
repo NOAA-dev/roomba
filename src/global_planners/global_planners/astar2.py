@@ -18,26 +18,6 @@ from tf2_ros import Buffer, TransformListener, TransformException
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
 
 
-def _required_float(node, name):
-    """Read a geometry parameter that must come from robot_dimensions.yaml.
-
-    There is deliberately no default: robot geometry has a single source of
-    truth (program_bringup/config/robot_dimensions.yaml), so a launch that
-    forgets to load it fails loudly instead of silently using stale numbers.
-    """
-    node.declare_parameter(name, Parameter.Type.DOUBLE)
-    try:
-        value = node.get_parameter(name).value
-    except Exception:
-        value = None
-    if value is None:
-        raise RuntimeError(
-            f"Parameter '{name}' is not set. Load "
-            "program_bringup/config/robot_dimensions.yaml into this node "
-            "(<param from=...> / parameters=[...]).")
-    return float(value)
-
-
 class node_state:
     def __init__(self, x, y, g=0.0, parent=None):
         self.x = x
@@ -49,11 +29,6 @@ class node_state:
 class AStarNode(Node):
     def __init__(self):
         super().__init__("a_star")
-
-        # ---- robot geometry (single source: robot_dimensions.yaml) ----
-        footprint_length = _required_float(self, "robot.footprint.length_m")
-        footprint_width = _required_float(self, "robot.footprint.width_m")
-        axle_x = _required_float(self, "robot.drive_wheel.axle_x_m")
 
         # ---- search limits ----
         self.max_expansions = 1000000
@@ -85,7 +60,10 @@ class AStarNode(Node):
         self.open_set_ = []
         self.closed_set_ = set()
         self.prev_goal = None
+        self.prev_goal_yaw = None
         self.Goal_ = None
+
+        self.path_ = []
 
         # ---- ROS interfaces (identical to the kinodynamic planner) ----
         path_qos = QoSProfile(depth=1)
@@ -132,6 +110,7 @@ class AStarNode(Node):
         ]
 
         self.cost_map_, self.clearance_map, self.lethal_mask = self.costmap_generator(self.Grid_, hard_limit=self.clearance_radius, comfort_limit=self.clearance_radius + self.comfort_margin,)
+        self.replan()
 
     def check_tf(self):
         if not self.enabled:
@@ -177,7 +156,39 @@ class AStarNode(Node):
         costmap[lethal_mask] = 100
 
         return np.rint(costmap).astype(np.uint8), clearance_map, lethal_mask
+    
+    # ------------------------------------------------------------------ #
+    # Re-planning
+    # ------------------------------------------------------------------ #
+    def replan(self):
+        if self.prev_goal is None:
+            return
+        if self.computing:
+            return
+        if self.path_ is None:
+            return
 
+        goal_x , goal_y , goal_yaw = self.prev_goal[0] , self.prev_goal[1] , self.prev_goal_yaw
+        collision_count = 0
+        for x , y in self.path_ :
+            if self.collision_check(x,y):
+                collision_count += 1
+            else:
+                continue
+        if collision_count >= 1:
+            if self.collision_check(goal_x, goal_y):
+                self.get_logger().warn("Goal is in collision.")
+                return
+            
+            start = self.world_to_grid(self.x_pos, self.y_pos)
+            if not (0 <= start[0] < self.Grid_.shape[1] and 0 <= start[1] < self.Grid_.shape[0]):
+                self.get_logger().warn("Robot has collided.")
+                return
+            
+            path = self.A_star(start, self.Goal_)
+            
+            if path is not None:
+                self.publish_path(path, goal_yaw)
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
@@ -205,7 +216,7 @@ class AStarNode(Node):
         """x, y are grid indices. True = blocked."""
         if x < 0 or y < 0 or x >= self.Grid_.shape[1] or y >= self.Grid_.shape[0]:
             return True
-        if self.Grid_[y, x] > 0:
+        if self.Grid_[y, x] > 65:
             return True
         if self.lethal_mask[y, x]:  # within clearance_radius of an obstacle
             return True
@@ -291,13 +302,15 @@ class AStarNode(Node):
             return
 
         goal_x, goal_y = self.world_to_grid(msg.pose.position.x, msg.pose.position.y)
-        self.Goal_ = (goal_x, goal_y)
-
-        if self.prev_goal is not None and self.prev_goal == self.Goal_:
-            return
 
         q = msg.pose.orientation
         _, _, goal_yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        self.Goal_ = (goal_x, goal_y)
+
+        if self.prev_goal is not None and self.prev_goal == self.Goal_:
+            self.prev_goal_yaw = goal_yaw
+            return
 
         t0 = time.perf_counter()  # total planning time starts here
         self.computing = True
@@ -316,6 +329,7 @@ class AStarNode(Node):
             if path is not None:
                 self.publish_path(path, goal_yaw)
                 self.prev_goal = self.Goal_
+                self.prev_goal_yaw = goal_yaw
         finally:
             self.computing = False
             elapsed = time.perf_counter() - t0
@@ -324,6 +338,7 @@ class AStarNode(Node):
     def publish_path(self, path, goal_yaw):
         """Convert grid path to world-frame Path with tangent headings
         (the old planner's poses carried theta, so the follower may use it)."""
+        self.path_ = path
         world = [self.grid_to_world(gx, gy) for gx, gy in path]
 
         path_msg = Path()
