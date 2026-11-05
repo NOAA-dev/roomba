@@ -1,0 +1,120 @@
+<?xml version="1.0"?>
+<!--
+  roomba_nav_test.launch.xml
+  ==========================
+  Hardware navigation test: lidar, SLAM, EKF, A*, pure pursuit and map_validator.
+  Goals come from RViz (2D Goal Pose, /goal_pose). No manager, explorers, joystick or data logger.
+
+      ros2 launch program_bringup roomba_nav_test.launch.xml
+
+  manual_test_bringup replaces manager_node here: it activates slam_toolbox and
+  map_saver_server, then enables map_validator, a_star and pure_pursuit.
+  Do not run manual_motion_test at the same time: it broadcasts odom->roomba TF and clashes with the EKF.
+-->
+<launch>
+
+    <!-- ========================== Settings ========================== -->
+    <let name="use_sim_time" value="false"/>
+    <let name="cfg" value="$(find-pkg-share program_bringup)/config"/>
+    <let name="dims" value="$(var cfg)/robot_dimensions.yaml"/>
+
+    <!-- ========================= Arguments ========================== -->
+    <arg name="serial_port" default="/dev/roomba_esp32" description="ESP32 serial device"/>
+    <arg name="baud_rate" default="115200" description="ESP32 baud rate, must match the firmware"/>
+    <arg name="rviz" default="false" description="Start local RViz2 (needs a graphical display)"/>
+    <arg name="rviz_config" default="$(find-pkg-share urdfs)/rviz/default.rviz" description="RViz2 config file"/>
+    <arg name="slam_config" default="$(var cfg)/slam_toolbox.yaml" description="slam_toolbox parameter file"/>
+    <arg name="ekf_config" default="$(var cfg)/ekf.yaml" description="robot_localization EKF parameter file"/>
+    <arg name="enable_imu" default="true" description="BNO055 IMU node"/>
+
+    <!-- ======================== Robot description ======================== -->
+    <let name="robot_description"
+         value="$(command 'xacro $(find-pkg-share urdfs)/urdf/roomba_hardware.urdf.xacro
+                  use_sim:=false
+                  serial_port:=$(var serial_port)
+                  baud_rate:=$(var baud_rate)
+                  controllers_config_path:=$(var cfg)/controllers.yaml
+                  robot_dimensions_path:=$(var dims)')"/>
+
+    <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+        <param name="robot_description" value="$(var robot_description)"/>
+        <param name="publish_fixed_joints" value="true"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ros2_control for the real robot: loads roomba_hardware/ESP32SystemInterface -->
+    <node pkg="controller_manager" exec="ros2_control_node" name="controller_manager" output="screen">
+        <param name="robot_description" value="$(var robot_description)"/>
+        <param from="$(var cfg)/controllers.yaml"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ============================ Sensors ============================= -->
+    <include file="$(find-pkg-share ydlidar_ros2_driver)/launch/ydlidar_launch.py">
+        <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+
+    <node pkg="helpers" exec="bno055_imu_node" name="bno055_imu_node" output="screen" if="$(var enable_imu)"/>
+
+    <!-- ========================== Controllers =========================== -->
+    <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner"
+          args="joint_state_broadcaster" output="screen"/>
+
+    <node pkg="controller_manager" exec="spawner" name="simple_velocity_controller_spawner"
+          args="simple_velocity_controller" output="screen"/>
+
+    <!-- ===================== Velocity commands / odometry ===================== -->
+    <!-- planners publish /autonomous_cmd_vel; twist_mux forwards it to /cmd_vel_unstamped -->
+    <node pkg="helpers" exec="cmd_relay" name="cmd_relay" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(var dims)"/>
+    </node>
+
+    <node pkg="twist_mux" exec="twist_mux" name="twist_mux" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(var cfg)/twist_mux_topics.yaml"/>
+        <param from="$(var cfg)/twist_mux_locks.yaml"/>
+        <remap from="/cmd_vel_out" to="/cmd_vel_unstamped"/>
+    </node>
+
+    <!-- ============================== SLAM ============================== -->
+    <node pkg="nav2_map_server" exec="map_saver_server" name="map_saver_server" output="screen">
+        <param name="save_map_timeout" value="5.0"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="free_thresh_default" value="0.196"/>
+        <param name="occupied_thresh_default" value="0.65"/>
+    </node>
+
+    <node pkg="slam_toolbox" exec="sync_slam_toolbox_node" name="slam_toolbox" output="screen">
+        <param from="$(var slam_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ========================== Localization ========================== -->
+    <node pkg="robot_localization" exec="ekf_node" name="ekf_filter_node" output="screen">
+        <param from="$(var ekf_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- =========================== Navigation =========================== -->
+    <node pkg="global_planners" exec="a_star" name="a_star" output="screen">
+        <param from="$(var dims)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="local_planners" exec="pure_pursuit" name="pure_pursuit_node" output="screen">
+        <param from="$(var dims)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- activates slam_toolbox + map_saver_server and enables map_validator, a_star, pure_pursuit -->
+    <node pkg="helpers" exec="manual_test_bringup" name="manual_test_bringup" output="screen"/>
+
+    <!-- ============================== Tools ============================= -->
+    <node pkg="rviz2" exec="rviz2" args="-d $(var rviz_config)" if="$(var rviz)"/>
+
+</launch>

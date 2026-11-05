@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<!--
+  roomba_odom_test.launch.xml
+  ===========================
+  Hardware odometry test: ESP32 + IMU + controllers + cmd_relay only.
+  No lidar, EKF, SLAM, planners, joystick or data logger.
+
+      ros2 launch program_bringup roomba_odom_test.launch.xml
+
+  Then drive it from a second terminal:
+      ros2 run helpers manual_motion_test
+  Do not run the EKF at the same time: manual_motion_test broadcasts odom->roomba TF itself.
+-->
+<launch>
+
+    <!-- ========================== Settings ========================== -->
+    <let name="use_sim_time" value="false"/>
+    <let name="cfg" value="$(find-pkg-share program_bringup)/config"/>
+    <let name="dims" value="$(var cfg)/robot_dimensions.yaml"/>
+
+    <!-- ========================= Arguments ========================== -->
+    <arg name="serial_port" default="/dev/roomba_esp32" description="ESP32 serial device"/>
+    <arg name="baud_rate" default="115200" description="ESP32 baud rate, must match the firmware"/>
+    <arg name="rviz" default="false" description="Start local RViz2 (needs a graphical display)"/>
+    <arg name="rviz_config" default="$(find-pkg-share urdfs)/rviz/manual_test.rviz" description="RViz2 config file"/>
+    <arg name="enable_imu" default="true" description="BNO055 IMU node"/>
+
+    <!-- ======================== Robot description ======================== -->
+    <let name="robot_description"
+         value="$(command 'xacro $(find-pkg-share urdfs)/urdf/roomba_hardware.urdf.xacro
+                  use_sim:=false
+                  serial_port:=$(var serial_port)
+                  baud_rate:=$(var baud_rate)
+                  controllers_config_path:=$(var cfg)/controllers.yaml
+                  robot_dimensions_path:=$(var dims)')"/>
+
+    <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+        <param name="robot_description" value="$(var robot_description)"/>
+        <param name="publish_fixed_joints" value="true"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ros2_control for the real robot: loads roomba_hardware/ESP32SystemInterface -->
+    <node pkg="controller_manager" exec="ros2_control_node" name="controller_manager" output="screen">
+        <param name="robot_description" value="$(var robot_description)"/>
+        <param from="$(var cfg)/controllers.yaml"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ============================ Sensors ============================= -->
+    <node pkg="helpers" exec="bno055_imu_node" name="bno055_imu_node" output="screen" if="$(var enable_imu)"/>
+
+    <!-- ========================== Controllers =========================== -->
+    <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner"
+          args="joint_state_broadcaster" output="screen"/>
+
+    <node pkg="controller_manager" exec="spawner" name="simple_velocity_controller_spawner"
+          args="simple_velocity_controller" output="screen"/>
+
+    <!-- ============================ Odometry ============================ -->
+    <node pkg="helpers" exec="cmd_relay" name="cmd_relay" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(var dims)"/>
+    </node>
+
+    <!-- ============================== Tools ============================= -->
+    <node pkg="rviz2" exec="rviz2" args="-d $(var rviz_config)" if="$(var rviz)"/>
+
+</launch>
