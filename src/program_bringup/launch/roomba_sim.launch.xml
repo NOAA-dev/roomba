@@ -1,0 +1,170 @@
+<?xml version="1.0"?>
+<!--
+  roomba_sim.launch.xml
+  =====================
+  Gazebo simulation of the roomba. Everything starts from this one file.
+
+      ros2 launch program_bringup roomba_sim.launch.xml
+
+  Turn parts off with the enable_* args, for example:
+      ros2 launch program_bringup roomba_sim.launch.xml rviz:=false enable_manager:=false
+-->
+<launch>
+
+    <!-- ========================== Settings ========================== -->
+    <let name="use_sim_time" value="true"/>
+    <let name="cfg" value="$(find-pkg-share program_bringup)/config"/>
+    <let name="dims" value="$(var cfg)/robot_dimensions.yaml"/>
+
+    <!-- ========================= Arguments ========================== -->
+    <arg name="world" default="$(find-pkg-share program_bringup)/world/small_house.world"
+         description="Full path of the Gazebo world file"/>
+    <arg name="gz_flags" default="-r -s -v 1"
+         description="Gazebo flags: -r run on start, -s headless (no Gazebo GUI), -v verbosity"/>
+    <arg name="rviz" default="true" description="Start RViz2 on this machine"/>
+    <arg name="rviz_config" default="$(find-pkg-share urdfs)/rviz/default.rviz" description="RViz2 config file"/>
+    <arg name="slam_config" default="$(var cfg)/slam_toolbox.yaml" description="slam_toolbox parameter file"/>
+    <arg name="ekf_config" default="$(var cfg)/ekf.yaml" description="robot_localization EKF parameter file"/>
+
+    <arg name="enable_joystick" default="true" description="joy, joy_teleop, twist_mux, cmd_relay"/>
+    <arg name="enable_slam" default="true" description="map_saver_server, slam_toolbox"/>
+    <arg name="enable_ekf" default="true" description="robot_localization EKF"/>
+    <arg name="enable_global_planner" default="true" description="A* global planner"/>
+    <arg name="enable_local_planner" default="true" description="pure pursuit + VFH avoidance"/>
+    <arg name="enable_map_validator" default="true"/>
+    <arg name="enable_frontier_explorer" default="true"/>
+    <arg name="enable_reactive_explorer" default="true" description="runs as object_avoider"/>
+    <arg name="enable_manager" default="true" description="lifecycle manager for SLAM + enable states"/>
+    <arg name="enable_data_logger" default="true" description="CSV logs of odometry, map, wheel commands"/>
+
+    <!-- ======================== Robot description ======================== -->
+    <let name="robot_description"
+         value="$(command 'xacro $(find-pkg-share urdfs)/urdf/roomba.urdf.xacro
+                  use_sim:=true
+                  serial_port:=/dev/roomba_esp32
+                  baud_rate:=115200
+                  controllers_config_path:=$(var cfg)/controllers.yaml
+                  robot_dimensions_path:=$(var dims)')"/>
+
+    <node pkg="robot_state_publisher" exec="robot_state_publisher" name="robot_state_publisher" output="screen">
+        <param name="robot_description" value="$(var robot_description)"/>
+        <param name="publish_fixed_joints" value="true"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ============================ Gazebo ============================== -->
+    <!-- ros2_control runs inside Gazebo (gz_ros2_control plugin in the URDF) -->
+    <set_env name="GZ_SIM_RESOURCE_PATH" value="$(find-pkg-share program_bringup)/models"/>
+
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+        <arg name="gz_args" value="$(var world) $(var gz_flags)"/>
+    </include>
+
+    <node pkg="ros_gz_sim" exec="create" args="-topic robot_description"/>
+
+    <node pkg="ros_gz_bridge" exec="parameter_bridge">
+        <param name="config_file" value="$(var cfg)/gazebo_bridge.yaml"/>
+    </node>
+
+    <!-- ========================== Controllers =========================== -->
+    <node pkg="controller_manager" exec="spawner" name="joint_state_broadcaster_spawner"
+          args="joint_state_broadcaster" output="screen"/>
+
+    <!-- diff_drive_controller is an alternative, currently unused -->
+    <node pkg="controller_manager" exec="spawner" name="simple_velocity_controller_spawner"
+          args="simple_velocity_controller" output="screen"/>
+
+    <!-- ============================ Joystick ============================ -->
+    <!-- joy_node -> joy_teleop -> twist_mux -> cmd_relay -->
+    <node pkg="joy_teleop" exec="joy_teleop" name="joy_teleop" output="screen" if="$(var enable_joystick)">
+        <param from="$(var cfg)/joystick_teleop.yaml"/>
+    </node>
+
+    <node pkg="joy" exec="joy_node" name="joystick" output="screen" if="$(var enable_joystick)">
+        <param from="$(var cfg)/joystick_config.yaml"/>
+    </node>
+
+    <node pkg="twist_mux" exec="twist_mux" name="twist_mux" output="screen" if="$(var enable_joystick)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(var cfg)/twist_mux_topics.yaml"/>
+        <param from="$(var cfg)/twist_mux_locks.yaml"/>
+        <remap from="/cmd_vel_out" to="/cmd_vel_unstamped"/>
+    </node>
+
+    <node pkg="helpers" exec="cmd_relay" name="cmd_relay" output="screen" if="$(var enable_joystick)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param from="$(var dims)"/>
+    </node>
+
+    <!-- ============================== SLAM ============================== -->
+    <!-- Neither node is activated here: manager_node owns their lifecycle -->
+    <node pkg="nav2_map_server" exec="map_saver_server" name="map_saver_server" output="screen"
+          if="$(var enable_slam)">
+        <param name="save_map_timeout" value="5.0"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="free_thresh_default" value="0.196"/>
+        <param name="occupied_thresh_default" value="0.65"/>
+    </node>
+
+    <node pkg="slam_toolbox" exec="sync_slam_toolbox_node" name="slam_toolbox" output="screen"
+          if="$(var enable_slam)">
+        <param from="$(var slam_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ========================== Localization ========================== -->
+    <node pkg="robot_localization" exec="ekf_node" name="ekf_filter_node" output="screen"
+          if="$(var enable_ekf)">
+        <param from="$(var ekf_config)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- =========================== Navigation =========================== -->
+    <node pkg="global_planners" exec="a_star" name="a_star" output="screen"
+          if="$(var enable_global_planner)">
+        <param from="$(var dims)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="local_planners" exec="pure_pursuit" name="pure_pursuit_node" output="screen"
+          if="$(var enable_local_planner)">
+        <param from="$(var dims)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- =========================== Exploration ========================== -->
+    <node pkg="helpers" exec="map_validator" name="map_validator_" output="screen"
+          if="$(var enable_map_validator)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- <node pkg="helpers" exec="coverage_planner" name="coverage_planner" output="screen">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node> -->
+
+    <node pkg="helpers" exec="frontier_explorer" name="frontier_explorer" output="screen"
+          if="$(var enable_frontier_explorer)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="helpers" exec="reactive_explorer" name="object_avoider" output="screen"
+          if="$(var enable_reactive_explorer)">
+        <param from="$(var dims)"/>
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <node pkg="helpers" exec="manager_node" name="manager_node" output="screen"
+          if="$(var enable_manager)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+    </node>
+
+    <!-- ============================== Tools ============================= -->
+    <node pkg="rviz2" exec="rviz2" args="-d $(var rviz_config)" if="$(var rviz)"/>
+
+    <node pkg="helpers" exec="data_logger" name="data_logger_node" output="screen"
+          if="$(var enable_data_logger)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="sim" value="true"/>
+    </node>
+
+</launch>
