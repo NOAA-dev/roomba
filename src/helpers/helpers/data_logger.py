@@ -20,8 +20,8 @@ timestamp so they're easy to correlate):
      accumulated drift with no map-frame correction applied.
 
   2. validated_map_log_<stamp>.csv
-     One summary row per Validatedmap event (map_score, fragmentation,
-     drift, etc.) plus the odometry sample cached at that instant.
+     One summary row per Validatedmap event (valid, fail_reason,
+     map->odom jump, loop-closure flag) plus the odometry sample cached at that instant.
 
   3. map_data_log_<stamp>.csv
      One row per Validatedmap event containing the FULL occupancy grid
@@ -140,15 +140,11 @@ class DataLoggerNode(Node):
             "ros_time_sec",
             "source",          # "valid" or "invalid"
             "counter",
-            "map_score",
             "valid",
-            "fragmented",
-            "fragments",
-            "is_dominant",
-            "reachable_ratio",
-            "drift_detected",
-            "drift_score",
-            "drift_distance",
+            "fail_reason",
+            "map_odom_jump_m",
+            "map_odom_jump_rad",
+            "loop_closure_suspected",
             "map_width",
             "map_height",
             "map_resolution",
@@ -501,15 +497,11 @@ class DataLoggerNode(Node):
             ros_time_sec,
             source,
             msg.counter,
-            msg.map_score,
             msg.valid,
-            msg.fragmented,
-            msg.fragments,
-            msg.is_dominant,
-            msg.reachable_ratio,
-            msg.drift_detected,
-            msg.drift_score,
-            msg.drift_distance,
+            msg.fail_reason,
+            msg.map_odom_jump_m,
+            msg.map_odom_jump_rad,
+            msg.loop_closure_suspected,
             msg.map.info.width,
             msg.map.info.height,
             msg.map.info.resolution,
