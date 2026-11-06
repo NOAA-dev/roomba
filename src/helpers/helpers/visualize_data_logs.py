@@ -33,12 +33,12 @@ automatically):
 Pick a specific run by its timestamp suffix:
     python3 visualize_data_logs.py --stamp 20260716_142233
 
-Static figures, one per window (trajectory / scores over time / latest map
+Static figures, one per window (trajectory / validation over time / latest map
 snapshot / odom-vs-map drift / wheel velocity / telemetry interval histogram):
     python3 visualize_data_logs.py --save out.png
 
 Step through every logged map snapshot as an animation (map + both trajectories
-superimposed, map_score readout in the top-right corner):
+superimposed, valid/invalid + map->odom jump readout in the top-right corner):
     python3 visualize_data_logs.py --animate --save out.mp4
     python3 visualize_data_logs.py --animate --save out.gif
 """
@@ -195,18 +195,33 @@ def make_trajectory_figure(odom_df, tf_df, stamp):
 
 
 def make_scores_figure(summary_df, stamp):
-    fig, ax = plt.subplots(figsize=(9, 5), num=f"Scores - {stamp}")
+    """Pass/fail per validated map plus the map->odom step (SLAM corrections)."""
+    fig, ax = plt.subplots(figsize=(9, 5), num=f"Validation - {stamp}")
     valid = summary_df[summary_df["source"] == "valid"]
     invalid = summary_df[summary_df["source"] == "invalid"]
     if not valid.empty:
-        ax.plot(valid["ros_time_sec"], valid["map_score"], "o-", color="tab:green", label="valid map_score")
+        ax.plot(valid["ros_time_sec"], [1] * len(valid), "o", color="tab:green", label="valid")
     if not invalid.empty:
-        ax.plot(invalid["ros_time_sec"], invalid["map_score"], "x-", color="tab:red", label="invalid map_score")
-    ax.axhline(0, color="gray", linewidth=0.5)
-    ax.set_title("Map validation score over time")
+        ax.plot(invalid["ros_time_sec"], [0] * len(invalid), "x", color="tab:red", label="invalid")
+    ax.set_yticks([0, 1])
+    ax.set_yticklabels(["invalid", "valid"])
+    ax.set_ylim(-0.3, 1.3)
+    ax.set_title("Map validation over time")
     ax.set_xlabel("ros time (s)")
-    ax.set_ylabel("map_score")
-    ax.legend(loc="best")
+
+    ax2 = ax.twinx()
+    ordered = summary_df.sort_values("ros_time_sec")
+    ax2.plot(ordered["ros_time_sec"], ordered["map_odom_jump_m"], "-", color="tab:blue",
+             alpha=0.7, label="map->odom jump (m)")
+    flagged = ordered[ordered["loop_closure_suspected"].astype(str) == "True"]
+    if not flagged.empty:
+        ax2.plot(flagged["ros_time_sec"], flagged["map_odom_jump_m"], "^", color="tab:purple",
+                 label="loop closure suspected")
+    ax2.set_ylabel("map->odom jump (m)")
+
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc="best")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
@@ -362,9 +377,9 @@ def make_telemetry_interval_figure(joint_df, sim, stamp):
 def make_animation(odom_df, summary_df, map_df, tf_df):
     fig, ax = plt.subplots(figsize=(7, 7), num="Map + trajectory animation")
 
-    # map_data_log doesn't carry map_score itself - pull it in from the
+    # map_data_log doesn't carry the validation fields - pull them in from the
     # summary log by matching on (counter, source), which both logs share.
-    scores = summary_df[["counter", "source", "map_score"]]
+    scores = summary_df[["counter", "source", "fail_reason", "map_odom_jump_m"]]
     map_df = map_df.merge(scores, on=["counter", "source"], how="left")
     show_tf = has_tf(tf_df)
 
@@ -387,10 +402,14 @@ def make_animation(odom_df, summary_df, map_df, tf_df):
                            color="red", zorder=6, s=30)
 
         score_color = "tab:green" if row["source"] == "valid" else "tab:red"
-        score_text = f"{row['map_score']:.1f}" if pd.notna(row["map_score"]) else "n/a"
+        jump_text = f"{row['map_odom_jump_m']:.3f} m" if pd.notna(row["map_odom_jump_m"]) else "n/a"
+        reason = row["fail_reason"] if isinstance(row["fail_reason"], str) and row["fail_reason"] else ""
+        label = f"{row['source']} (#{int(row['counter'])})\nmap->odom jump: {jump_text}"
+        if reason:
+            label += f"\n{reason}"
         ax.text(
             0.98, 0.98,
-            f"score: {score_text}\n{row['source']} (#{int(row['counter'])})",
+            label,
             transform=ax.transAxes,
             ha="right", va="top",
             fontsize=12, fontweight="bold", color=score_color,

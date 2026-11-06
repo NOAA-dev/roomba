@@ -10,10 +10,11 @@ from tf_transformations import euler_from_quaternion
 from rclpy.duration import Duration
 from custom_interfaces.msg import Validatedmap, NodeEnableStates
 from rclpy.qos import QoSProfile, DurabilityPolicy
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from nav2_msgs.srv import SaveMap
 from slam_toolbox.srv import SerializePoseGraph
 import os
+from datetime import datetime
 
 
 class MAPValidatorNode(Node):
@@ -22,13 +23,10 @@ class MAPValidatorNode(Node):
 
         self.map_ = OccupancyGrid()
         self.map_ss = OccupancyGrid()
-        self.prev_map_ss = OccupancyGrid()
         self.send_to_validate = False
-        self.keep_exploring = True
 
         self.x_pos = 0.0
         self.y_pos = 0.0
-        self.yaw = 0.0
 
         self.good_map_ = Validatedmap()
         self.good_map_counter = 0
@@ -36,6 +34,22 @@ class MAPValidatorNode(Node):
         self.bad_map_counter = 0
 
         self.enabled = True
+
+        # a map->odom step bigger than this inside one tick is a SLAM
+        # correction (loop closure / scan-match jump), not odometry drift
+        self.declare_parameter("loop_jump_m", 0.10)
+        self.declare_parameter("loop_jump_rad", 0.05)
+        self.declare_parameter("saved_maps_dir", "~/roomba/saved_maps")
+        self.loop_jump_m = self.get_parameter("loop_jump_m").value
+        self.loop_jump_rad = self.get_parameter("loop_jump_rad").value
+        self.saved_maps_dir = os.path.expanduser(self.get_parameter("saved_maps_dir").value)
+
+        self.prev_map_odom = None      # (x, y, yaw) from the previous tick
+        self.win_jump_m = 0.0          # max step since the last snapshot
+        self.win_jump_rad = 0.0
+        self.snap_jump_m = 0.0         # window values frozen at snapshot time
+        self.snap_jump_rad = 0.0
+        self.latest_valid = False      # result of the MOST RECENT validation
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -53,15 +67,19 @@ class MAPValidatorNode(Node):
         self.timer_3 = self.create_timer(1.0, self.publish_map)
         self.tf_timer = self.create_timer(0.1, self.check_tf)
 
-        self.exploration_done = False
         self.map_saved = False
         self.pose_graph_saved = False
+        self.saving = False
+        self.candidate_base = None
 
         enable_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.enable_sub = self.create_subscription(
             NodeEnableStates, "/manager/enable_states", self.enable_callback, enable_qos)
-        self.exploration_done_sub = self.create_subscription(
-            Bool, "/exploration_complete", self.exploration_done_callback, 10)
+        # saving is now gated: manager publishes this only after the user
+        # confirmed (ros2 service call /manager/confirm_save ...)
+        self.save_confirmed_sub = self.create_subscription(
+            Bool, "/manager/save_confirmed", self.save_confirmed_callback, 10)
+        self.candidate_pub = self.create_publisher(String, "/map_validator/candidate_saved", 10)
 
         self.save_map_client = self.create_client(SaveMap, "/map_saver_server/save_map")
         self.serialize_map_client = self.create_client(SerializePoseGraph, "/slam_toolbox/serialize_map")
@@ -69,27 +87,56 @@ class MAPValidatorNode(Node):
     def enable_callback(self, msg: NodeEnableStates):
         self.enabled = msg.map_validator
 
-    def exploration_done_callback(self, msg: Bool):
-        if msg.data and not self.exploration_done:
-            self.exploration_done = True
-            self.get_logger().info("exploration complete signal received — freezing map, no further SLAM updates will be processed")
-            self.save_final_map()
+    def save_confirmed_callback(self, msg: Bool):
+        if not msg.data or self.saving:
+            return
 
-    def save_final_map(self):
-        save_dir = os.path.expanduser("~/roomba/saved_maps")
-        os.makedirs(save_dir, exist_ok=True)
-        stamp = self.get_clock().now().nanoseconds
-        map_path = os.path.join(save_dir, f"final_map_{stamp}")
+        if self.good_map_counter == 0 or not self.latest_valid:
+            self.get_logger().error(
+                "save refused: the most recent validation was not VALID (or no valid map yet)")
+            return
+        if self.snap_jump_m >= self.loop_jump_m or self.snap_jump_rad >= self.loop_jump_rad:
+            self.get_logger().error(
+                "save refused: map->odom was still jumping in the last window "
+                f"({self.snap_jump_m:.3f} m, {self.snap_jump_rad:.3f} rad); wait for it to settle")
+            return
 
-        if not self.map_saved:
-            self._save_occupancy_grid(map_path)
+        cand_dir = os.path.join(self.saved_maps_dir, "candidates")
+        os.makedirs(cand_dir, exist_ok=True)
+        self.candidate_base = os.path.join(
+            cand_dir, "map_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
+        self.saving = True
+        self.map_saved = False
+        self.pose_graph_saved = False
+        self.get_logger().info(f"saving candidate map -> {self.candidate_base}")
+        self._save_occupancy_grid(self.candidate_base)
+        self._serialize_pose_graph(self.candidate_base)
 
-        if not self.pose_graph_saved:
-            self._serialize_pose_graph(map_path)
+    def _finish_save_if_done(self):
+        if not self.saving:
+            return
+        if self.map_saved and self.pose_graph_saved:
+            self.saving = False
+            self.candidate_pub.publish(String(data=self.candidate_base))
+            self.get_logger().info(f"candidate saved: {self.candidate_base}")
+
+    def _abort_save(self):
+        # a half-written candidate (yaml without posegraph, or the reverse)
+        # is useless — remove it so it can never be picked up
+        self.saving = False
+        d, b = os.path.split(self.candidate_base)
+        for f in os.listdir(d):
+            if f.startswith(b + "."):
+                try:
+                    os.remove(os.path.join(d, f))
+                except OSError:
+                    pass
+        self.get_logger().error("candidate save failed — partial files removed")
 
     def _save_occupancy_grid(self, map_path):
         if not self.save_map_client.wait_for_service(timeout_sec=2.0):
-            self.get_logger().error("map_saver_server/save_map service unavailable, cannot save final map")
+            self.get_logger().error("map_saver_server/save_map service unavailable, cannot save map")
+            self._abort_save()
             return
 
         req = SaveMap.Request()
@@ -108,11 +155,14 @@ class MAPValidatorNode(Node):
             result = future.result()
             if result.result:
                 self.map_saved = True
-                self.get_logger().info("final map (yaml/pgm) saved successfully")
+                self.get_logger().info("map (yaml/pgm) saved successfully")
+                self._finish_save_if_done()
             else:
                 self.get_logger().error("map_saver_server reported save failure")
+                self._abort_save()
         except Exception as e:
             self.get_logger().error(f"save_map call failed: {e}")
+            self._abort_save()
 
     def _serialize_pose_graph(self, map_path):
         # saves slam_toolbox's full pose-graph (not just the flattened
@@ -121,6 +171,7 @@ class MAPValidatorNode(Node):
         # instead of starting SLAM from a blank slate every time
         if not self.serialize_map_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("slam_toolbox/serialize_map service unavailable, cannot save pose graph")
+            self._abort_save()
             return
 
         req = SerializePoseGraph.Request()
@@ -135,13 +186,16 @@ class MAPValidatorNode(Node):
             if result.result == 0:
                 self.pose_graph_saved = True
                 self.get_logger().info("pose graph serialized successfully")
+                self._finish_save_if_done()
             else:
                 self.get_logger().error(f"pose graph serialization failed, code={result.result}")
+                self._abort_save()
         except Exception as e:
             self.get_logger().error(f"serialize_map call failed: {e}")
+            self._abort_save()
 
     def map_callback(self, msg: OccupancyGrid):
-        if not self.enabled or self.exploration_done:
+        if not self.enabled:
             return
         self.map_ = msg
 
@@ -161,12 +215,33 @@ class MAPValidatorNode(Node):
 
             self.x_pos = transform.transform.translation.x
             self.y_pos = transform.transform.translation.y
-            z = transform.transform.translation.z
-            q = transform.transform.rotation
-            _, _, self.yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
         except TransformException as ex:
             self.get_logger().warn(f"TF unavailable: {ex}", throttle_duration_sec=2.0)
+
+        self.track_map_odom()
+
+    def track_map_odom(self):
+        # map->odom only changes when SLAM applies a correction, so a step
+        # here separates a loop closure from genuine drift
+        try:
+            t = self.tf_buffer.lookup_transform("map", "odom", rclpy.time.Time())
+        except TransformException:
+            return
+        q = t.transform.rotation
+        _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        cur = (t.transform.translation.x, t.transform.translation.y, yaw)
+
+        if self.prev_map_odom is not None:
+            step_m = math.hypot(cur[0] - self.prev_map_odom[0], cur[1] - self.prev_map_odom[1])
+            dyaw = cur[2] - self.prev_map_odom[2]
+            step_rad = abs(math.atan2(math.sin(dyaw), math.cos(dyaw)))
+            self.win_jump_m = max(self.win_jump_m, step_m)
+            self.win_jump_rad = max(self.win_jump_rad, step_rad)
+            if step_m >= self.loop_jump_m or step_rad >= self.loop_jump_rad:
+                self.get_logger().info(
+                    f"map->odom step {step_m:.3f} m / {step_rad:.3f} rad (SLAM correction)")
+        self.prev_map_odom = cur
 
     def _nearest_labeled_cell(self, labeled, row, col, search_radius):
         height, width = labeled.shape
@@ -201,127 +276,25 @@ class MAPValidatorNode(Node):
 
         return is_dominant, reachable_ratio
 
-    def align_to_common_frame(self, map_a: OccupancyGrid, map_b: OccupancyGrid):
-        res = map_a.info.resolution
-        if abs(res - map_b.info.resolution) > 1e-6:
-            self.get_logger().warn("resolution mismatch between snapshots, skipping shift check")
-            return None, None
-
-        ax0, ay0 = map_a.info.origin.position.x, map_a.info.origin.position.y
-        bx0, by0 = map_b.info.origin.position.x, map_b.info.origin.position.y
-        a_x1, a_y1 = ax0 + map_a.info.width * res, ay0 + map_a.info.height * res
-        b_x1, b_y1 = bx0 + map_b.info.width * res, by0 + map_b.info.height * res
-
-        ix0, iy0 = max(ax0, bx0), max(ay0, by0)
-        ix1, iy1 = min(a_x1, b_x1), min(a_y1, b_y1)
-
-        if ix1 <= ix0 or iy1 <= iy0:
-            return None, None
-
-        def crop(map_msg):
-            grid = np.array(map_msg.data, dtype=np.int8).reshape(map_msg.info.height, map_msg.info.width)
-            col0, row0 = self.world_to_map(ix0, iy0, map_msg)
-            col1, row1 = self.world_to_map(ix1, iy1, map_msg)
-            return grid[row0:row1, col0:col1]
-
-        grid_a = crop(map_a)
-        grid_b = crop(map_b)
-
-        h = min(grid_a.shape[0], grid_b.shape[0])
-        w = min(grid_a.shape[1], grid_b.shape[1])
-        if h <= 0 or w <= 0:
-            return None, None
-
-        return grid_a[:h, :w], grid_b[:h, :w]
-
-    def detect_snapshot_shift(self, grid_prev, grid_curr, max_search_px=3):
-        occ_prev = (grid_prev == 100)
-        occ_curr = (grid_curr == 100)
-        known = (grid_prev != -1) & (grid_curr != -1)
-
-        if occ_prev.sum() < 20 or occ_curr.sum() < 20:
-            return 0, 0, None
-
-        best_score, best_dx, best_dy = -1.0, 0, 0
-
-        for dy in range(-max_search_px, max_search_px + 1):
-            for dx in range(-max_search_px, max_search_px + 1):
-                shifted = np.roll(np.roll(occ_curr, dy, axis=0), dx, axis=1)
-
-                valid = known.copy()
-                if dy > 0: valid[:dy, :] = False
-                elif dy < 0: valid[dy:, :] = False
-                if dx > 0: valid[:, :dx] = False
-                elif dx < 0: valid[:, dx:] = False
-
-                match = np.count_nonzero(occ_prev & shifted & valid)
-                union = np.count_nonzero((occ_prev | shifted) & valid)
-                score = match / union if union > 0 else 0.0
-
-                if score > best_score:
-                    best_score, best_dx, best_dy = score, dx, dy
-
-        return best_dx, best_dy, best_score
-
-    def scoring_function(self, dominant, reachable_ratio, fragments, fragmented, drift_score, cell_drift_distance):
-        fail_reasons = []
-        score = 100.0
-
-        if fragmented == True:
-            fail_reasons.append("map is fragmented")
-            penalty = -50.0
-        else:
-            penalty = -min((fragments), 7)
-
-        if dominant == True:
-            penalty += -(1.0 - reachable_ratio) * 100
-        elif dominant == False and reachable_ratio >= 0.8:
-            penalty += -20
-        elif dominant == False and reachable_ratio < 0.8:
-            fail_reasons.append("robot is not in major connected region")
-            penalty += -50.0
-
-        if drift_score is None:
-            penalty += -25.0
-        elif drift_score < 0.7 or cell_drift_distance > 1.4:
-            fail_reasons.append("map has drifted")
-            penalty += -50
-        else:
-            penalty += -(1 - drift_score) * 100
-
-        score = score + penalty
-
-        return score, fail_reasons
-
     def check_map(self):
-        if not self.enabled or self.exploration_done:
+        if not self.enabled:
             return
-        self.keep_exploring = True
         self.send_to_validate = False
 
         if not self.map_.data:
             return
 
-        data = np.array(self.map_.data, dtype=np.int8)
-
-        num_of_free = np.count_nonzero(data == 0)
-        num_of_unknown = np.count_nonzero(data == -1)
-        num_of_occupied = np.count_nonzero(data == 100)
-        total_cells = data.size
-
-        if total_cells == 0:
-            return
-
         self.send_to_validate = True
-        self.keep_exploring = False
-
-        if self.map_ss.data:
-            self.prev_map_ss = self.map_ss
-
         self.map_ss = self.map_
 
+        # freeze the map->odom activity since the previous snapshot
+        self.snap_jump_m = self.win_jump_m
+        self.snap_jump_rad = self.win_jump_rad
+        self.win_jump_m = 0.0
+        self.win_jump_rad = 0.0
+
     def validate_map(self):
-        if not self.enabled or self.exploration_done:
+        if not self.enabled:
             return
         if not self.send_to_validate:
             return
@@ -341,58 +314,43 @@ class MAPValidatorNode(Node):
             largest_component_size = sizes.max()
 
         fragmented = num_components > 1 and largest_component_size < free_clean.sum() * 0.95
-        if fragmented:
-            self.get_logger().warn("Map is fragmented.")
 
         map_x, map_y = self.world_to_map(self.x_pos, self.y_pos, self.map_ss)
-        row, col = map_y, map_x
-        is_dominant, reachable_ratio = self.check_robot_connectivity(labeled, num_components, free_clean, row, col)
+        is_dominant, reachable_ratio = self.check_robot_connectivity(
+            labeled, num_components, free_clean, map_y, map_x)
+
+        # pass/fail only — no score. Drift is no longer judged from map
+        # snapshots; map->odom steps are reported in the message instead.
+        fail_reasons = []
+        if fragmented:
+            fail_reasons.append("map is fragmented")
         if not is_dominant and reachable_ratio < 0.8:
-            self.get_logger().warn("robot not in dominant connected region")
+            fail_reasons.append("robot is not in major connected region")
+        valid = len(fail_reasons) == 0
 
-        drift_score = None
-        shift_cells = 0.0
-        shift_meters = 0.0
-        drifted = False
-
-        if self.prev_map_ss.data:
-            grid_prev, grid_curr = self.align_to_common_frame(self.prev_map_ss, self.map_ss)
-            if grid_prev is not None:
-                dx, dy, s = self.detect_snapshot_shift(grid_prev, grid_curr)
-                if s is not None:
-                    drift_score = s
-                    shift_cells = math.hypot(dx, dy)
-                    shift_meters = shift_cells * self.map_ss.info.resolution
-                    drifted = shift_cells > 1.4 or drift_score < 0.7
-
-        map_score, fail_flags = self.scoring_function(is_dominant, reachable_ratio, num_components, fragmented, drift_score, shift_cells)
-
-        valid = len(fail_flags) == 0
-        drift_detected = drifted if drift_score is not None else False
+        loop_closure_suspected = (self.snap_jump_m >= self.loop_jump_m
+                                  or self.snap_jump_rad >= self.loop_jump_rad)
 
         msg = Validatedmap()
-        msg.map_score = float(map_score)
         msg.valid = bool(valid)
-        msg.fragmented = bool(fragmented)
-        msg.fragments = int(num_components)
-        msg.is_dominant = bool(is_dominant)
-        msg.reachable_ratio = float(reachable_ratio)
-        msg.drift_detected = bool(drift_detected)
-        msg.drift_score = float(drift_score) if drift_score is not None else -1.0
-        msg.drift_distance = float(shift_meters)
+        msg.fail_reason = "; ".join(fail_reasons)
+        msg.map_odom_jump_m = float(self.snap_jump_m)
+        msg.map_odom_jump_rad = float(self.snap_jump_rad)
+        msg.loop_closure_suspected = bool(loop_closure_suspected)
         msg.validation_time = self.get_clock().now().to_msg()
         msg.map = self.map_ss
 
+        self.latest_valid = bool(valid)
         if valid:
             self.good_map_counter += 1
             msg.counter = self.good_map_counter
             self.good_map_ = msg
-            self.get_logger().info(f"map_score={map_score:.1f} -> VALID (#{self.good_map_counter})")
+            self.get_logger().info(f"VALID (#{self.good_map_counter}) reachable={reachable_ratio:.2f}")
         else:
             self.bad_map_counter += 1
             msg.counter = self.bad_map_counter
             self.bad_map_ = msg
-            self.get_logger().warn(f"map_score={map_score:.1f} -> INVALID {fail_flags} (#{self.bad_map_counter})")
+            self.get_logger().warn(f"INVALID {fail_reasons} (#{self.bad_map_counter})")
 
     def publish_map(self):
         if self.good_map_counter > 0:
