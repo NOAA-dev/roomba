@@ -10,7 +10,7 @@ from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Bool
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from tf2_ros import Buffer, TransformListener, TransformException
-from tf_transformations import euler_from_quaternion, quaternion_from_euler
+from tf_transformations import quaternion_from_euler
 from custom_interfaces.msg import Validatedmap, NodeEnableStates
 
 
@@ -23,6 +23,27 @@ class FrontierExplorerNode(Node):
 
         self.latest_valid_map = None
         self.last_seen_counter = -1
+        self.latest_valid_time = None
+
+        # if no NEW valid map has arrived for this long, planning (and above
+        # all declaring completion) on the old one is unsafe — stand still
+        # until validation recovers. 0 disables the guard.
+        self.declare_parameter("max_map_age_sec", 30.0)
+        self.max_map_age_sec = self.get_parameter("max_map_age_sec").value
+
+        # "no frontier" must not mean "done" while the map is still being born.
+        # Completion needs: a mature map, enough explore time or goals, and the
+        # same verdict on several DISTINCT valid maps in a row.
+        self.declare_parameter("min_free_area_m2", 3.0)
+        self.declare_parameter("min_explore_time_sec", 30.0)
+        self.declare_parameter("complete_confirmations", 3)
+        self.min_free_area_m2 = self.get_parameter("min_free_area_m2").value
+        self.min_explore_time_sec = self.get_parameter("min_explore_time_sec").value
+        self.complete_confirmations = int(self.get_parameter("complete_confirmations").value)
+        self.enabled_since = None
+        self.goals_sent = 0
+        self.no_frontier_streak = 0
+        self._nf_counter = -1
 
         self.x_pos = 0.0
         self.y_pos = 0.0
@@ -64,12 +85,21 @@ class FrontierExplorerNode(Node):
         self.get_logger().info("frontier_explorer active")
 
     def enable_callback(self, msg: NodeEnableStates):
+        was_enabled = self.enabled
         self.enabled = msg.frontier_explorer
+        if self.enabled and not was_enabled:
+            self.enabled_since = self.get_clock().now()
+            self.goals_sent = 0
+            self.no_frontier_streak = 0
+        if was_enabled and not self.enabled:
+            # manager took over (e.g. return-to-start): forget the old goal
+            self.current_goal = None
 
     def map_callback(self, msg: Validatedmap):
         if msg.valid and msg.counter != self.last_seen_counter:
             self.last_seen_counter = msg.counter
             self.latest_valid_map = msg.map
+            self.latest_valid_time = self.get_clock().now()
 
     def check_tf(self):
         try:
@@ -170,11 +200,20 @@ class FrontierExplorerNode(Node):
         if self.latest_valid_map is None:
             return
 
+        if self.max_map_age_sec > 0 and self.latest_valid_time is not None:
+            age = (self.get_clock().now() - self.latest_valid_time).nanoseconds / 1e9
+            if age > self.max_map_age_sec:
+                self.get_logger().warn(
+                    f"newest valid map is {age:.0f}s old — not planning or declaring completion on it",
+                    throttle_duration_sec=10.0)
+                return
+
         map_msg = self.latest_valid_map
         grid = np.array(map_msg.data, dtype=np.int8).reshape(
             map_msg.info.height, map_msg.info.width)
         resolution = map_msg.info.resolution
         cell_area = resolution * resolution
+        free_area_m2 = np.count_nonzero(grid == 0) * cell_area
         min_clearance_cells = self.min_goal_clearance_m / resolution
 
         if self.current_goal is not None:
@@ -214,8 +253,7 @@ class FrontierExplorerNode(Node):
         frontier_mask = reachable_free & unknown_dilated
 
         if not frontier_mask.any():
-            self.get_logger().info("no frontiers left in reachable area — exploration complete")
-            self.exploration_done_pub.publish(Bool(data=True))
+            self._no_frontier("no frontier cells in the robot's reachable area", free_area_m2)
             return
 
         frontier_labeled, num_frontiers = ndimage.label(frontier_mask, structure=np.ones((3, 3)))
@@ -272,14 +310,47 @@ class FrontierExplorerNode(Node):
                 best_world_xy = (world_x, world_y)
 
         if best_world_xy is None:
-            self.get_logger().info(
-                "no frontiers with sufficient unknown area / clearance — exploration complete")
-            self.exploration_done_pub.publish(Bool(data=True))
+            self._no_frontier("frontiers exist but none has enough unknown area / goal clearance",
+                              free_area_m2)
             return
 
         self.publish_goal(best_world_xy)
 
+    def _no_frontier(self, reason, free_area_m2):
+        now = self.get_clock().now()
+        if self.enabled_since is None:
+            self.enabled_since = now
+        waited = (now - self.enabled_since).nanoseconds / 1e9
+        mature = (free_area_m2 >= self.min_free_area_m2
+                  and (self.goals_sent >= 1 or waited >= self.min_explore_time_sec))
+
+        if not mature:
+            self.no_frontier_streak = 0
+            self.get_logger().info(
+                f"no usable frontier ({reason}) but map not mature yet "
+                f"(free {free_area_m2:.1f} m2 / need {self.min_free_area_m2:.1f}, "
+                f"goals {self.goals_sent}, {waited:.0f}s / {self.min_explore_time_sec:.0f}s) — NOT complete",
+                throttle_duration_sec=5.0)
+            return
+
+        # count each distinct valid map once (this runs every 2 s, maps arrive ~every 3 s)
+        if self.last_seen_counter != self._nf_counter:
+            self._nf_counter = self.last_seen_counter
+            self.no_frontier_streak += 1
+
+        if self.no_frontier_streak < self.complete_confirmations:
+            self.get_logger().info(
+                f"no usable frontier ({reason}) — confirming "
+                f"{self.no_frontier_streak}/{self.complete_confirmations}",
+                throttle_duration_sec=2.0)
+            return
+
+        self.get_logger().info(f"{reason} on {self.no_frontier_streak} consecutive valid maps — exploration complete")
+        self.exploration_done_pub.publish(Bool(data=True))
+
     def publish_goal(self, world_xy):
+        self.no_frontier_streak = 0
+        self.goals_sent += 1
         world_x, world_y = world_xy
         self.current_goal = (world_x, world_y)
         self.goal_set_time = self.get_clock().now()
