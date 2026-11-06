@@ -326,11 +326,6 @@ class FrontierExplorerNode(Node):
 
         if not mature:
             self.no_frontier_streak = 0
-            self.get_logger().info(
-                f"no usable frontier ({reason}) but map not mature yet "
-                f"(free {free_area_m2:.1f} m2 / need {self.min_free_area_m2:.1f}, "
-                f"goals {self.goals_sent}, {waited:.0f}s / {self.min_explore_time_sec:.0f}s) — NOT complete",
-                throttle_duration_sec=5.0)
             return
 
         # count each distinct valid map once (this runs every 2 s, maps arrive ~every 3 s)

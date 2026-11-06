@@ -155,7 +155,6 @@ class MAPValidatorNode(Node):
             result = future.result()
             if result.result:
                 self.map_saved = True
-                self.get_logger().info("map (yaml/pgm) saved successfully")
                 self._finish_save_if_done()
             else:
                 self.get_logger().error("map_saver_server reported save failure")
@@ -185,7 +184,6 @@ class MAPValidatorNode(Node):
             result = future.result()
             if result.result == 0:
                 self.pose_graph_saved = True
-                self.get_logger().info("pose graph serialized successfully")
                 self._finish_save_if_done()
             else:
                 self.get_logger().error(f"pose graph serialization failed, code={result.result}")
@@ -345,7 +343,6 @@ class MAPValidatorNode(Node):
             self.good_map_counter += 1
             msg.counter = self.good_map_counter
             self.good_map_ = msg
-            self.get_logger().info(f"VALID (#{self.good_map_counter}) reachable={reachable_ratio:.2f}")
         else:
             self.bad_map_counter += 1
             msg.counter = self.bad_map_counter

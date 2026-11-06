@@ -56,7 +56,7 @@ class ManagerNode(Node):
         self.declare_parameter("home_reached_radius_m", 0.4)
         self.declare_parameter("return_home_timeout_sec", 90.0)
         self.declare_parameter("return_home_retries", 2)
-        self.declare_parameter("revisit_distance_m", 0.0)             # >0: periodic return-to-start; 0 = off
+        self.declare_parameter("revisit_distance_m", 15.0)             # >0: periodic return-to-start; 0 = off
         self.declare_parameter("settle_validations", 3)               # clean valid snapshots needed before a save is offered
         self.declare_parameter("promote_similarity_threshold", 0.6)   # placeholder — tune from real data
         self.declare_parameter("promote_min_known_ratio", 0.9)        # placeholder — tune from real data
@@ -928,11 +928,9 @@ class ManagerNode(Node):
                     f"{self.return_max_jump_rad:.3f} rad). Confirm with:\n"
                     "  ros2 service call /manager/confirm_save std_srvs/srv/Trigger {}")
             else:
-                self.get_logger().info(f"not ready to save: {reason}")
+                pass
         elif self.state == "PENDING_PROMOTION":
-            self.get_logger().info(
-                "candidate held back — to promote it anyway: "
-                "ros2 service call /manager/promote_candidate std_srvs/srv/Trigger {}")
+            pass
 
     def confirm_save_srv(self, request, response):
         if self.state != "AWAIT_CONFIRM":
