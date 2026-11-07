@@ -26,6 +26,7 @@
     <arg name="slam_config" default="$(var cfg)/slam_toolbox.yaml" description="slam_toolbox parameter file"/>
     <arg name="ekf_config" default="$(var cfg)/ekf.yaml" description="robot_localization EKF parameter file"/>
     <arg name="enable_imu" default="true" description="BNO055 IMU node"/>
+    <arg name="enable_data_logger" default="true" description="CSV logs of odometry, map, wheel commands"/>
 
     <!-- ======================== Robot description ======================== -->
     <let name="robot_description"
@@ -116,5 +117,11 @@
 
     <!-- ============================== Tools ============================= -->
     <node pkg="rviz2" exec="rviz2" args="-d $(var rviz_config)" if="$(var rviz)"/>
+
+    <node pkg="helpers" exec="data_logger" name="data_logger_node" output="screen"
+          if="$(var enable_data_logger)">
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="sim" value="false"/>
+    </node>
 
 </launch>
