@@ -29,6 +29,10 @@ Review items implemented (numbers from the review):
   9  lookahead 0.25 .. 0.50 m (0.25 + 0.6 v)
  10  tangent extension past the end, stop on along-track distance, final heading from /goal_pose
  11  omega limited by 2 (v_lim - |v|) / track, and v capped so that omega = v*kappa fits
+ 12  in-place rotations (heading gate and final ALIGN) latch their direction at the start and
+     track the REMAINING angle from odom->roomba yaw (smooth), not map->roomba, so SLAM yaw
+     jumps / a target near +-180 deg cannot flip the turn direction. Aborts after
+     `rotate_timeout_sec` (stuck wheels) instead of spinning forever.
 """
 import math
 
@@ -182,6 +186,8 @@ class PurePursuitNode(Node):
         self.rot_gain = p("rotate_gain", 1.5)
         self.rot_w_max = min(p("rotate_angular_vel", 1.0), self.w_cap)
         self.rot_w_min = min(p("rotate_min_angular_vel", 0.25), self.rot_w_max)  # motor deadband
+        self.rot_timeout = p("rotate_timeout_sec", 15.0)   # <= 0 disables
+        self.odom_frame = p("odom_frame", "odom")          # rotation progress is measured here
 
         self.simplify_tol = p("simplify_tol", 0.03)
         self.resample_step = max(p("resample_step", 0.10), 0.02)
@@ -189,9 +195,11 @@ class PurePursuitNode(Node):
         self.search_window = p("nearest_search_window", 1.0)
         self.max_cross_track = p("max_cross_track", 0.75)
 
-        self.goal_tol = p("goal_tolerance", 0.07)
+        self.goal_tol = p("goal_tolerance", 0.02)
+        self.snap_goal = bool(p("snap_path_to_goal", True))
+        self.snap_max_dist = p("snap_max_dist", 0.06)     # > half a 0.05 m cell diagonal
         self.align_final = bool(p("align_final_heading", True))
-        self.yaw_tol = math.radians(p("yaw_tolerance_deg", 6.0))
+        self.yaw_tol = math.radians(p("yaw_tolerance_deg", 2.0))
         self.align_timeout = p("align_timeout_sec", 10.0)
         self.goal_match_tol = p("goal_match_tolerance", 0.25)
 
@@ -216,7 +224,12 @@ class PurePursuitNode(Node):
 
         self.x_pos = self.y_pos = self.yaw = 0.0
         self.v = 0.0
+        self.odom_yaw = None                 # odom->roomba yaw, None if unavailable
         self.rotating = False
+        self.rot_remaining = 0.0             # signed rad still to turn (+ = CCW), latched
+        self.rot_prev = 0.0
+        self.rot_src = None
+        self.rot_start = None
         self.avoid_dir = 0
 
         self.X = self.Y = self.S = self.V = None
@@ -225,6 +238,7 @@ class PurePursuitNode(Node):
         self.last_idx = 0
         self.first_projection = True
 
+        self.raw_pts = None                  # last /path (deduped), kept for late-goal re-snap
         self.latest_goal = None              # (x, y, yaw) from /goal_pose
         self.path_goal_yaw = None
         self.align_start = None
@@ -272,7 +286,47 @@ class PurePursuitNode(Node):
         q = msg.pose.orientation
         _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
         self.latest_goal = (msg.pose.position.x, msg.pose.position.y, yaw)
-        self._match_goal()            # covers "goal arrives after its path"
+        self._resnap_late_goal()      # covers "goal arrives after its path"
+        self._match_goal()
+
+    def _build_path(self, pts):
+        """simplify -> resample -> curvature -> speed profile -> end tangent.
+        The A* path ends at the CENTRE of the goal cell (up to half a cell diagonal =
+        0.035 m from the requested point). If /goal_pose is within `snap_max_dist` of that
+        end, the last point is replaced by the exact goal so the robot stops AT the goal."""
+        if self.snap_goal and self.latest_goal is not None:
+            gx, gy, _ = self.latest_goal
+            d = math.hypot(gx - pts[-1, 0], gy - pts[-1, 1])
+            if 1e-4 < d <= self.snap_max_dist:
+                pts = pts.copy()
+                pts[-1] = (gx, gy)
+        pts = simplify_dp(pts, self.simplify_tol)
+        pts, s = resample(pts, self.resample_step)
+        ds = max(float(s[-1]) / max(len(s) - 1, 1), 1e-6)
+        k = max(1, int(round(self.curv_window / 2.0 / ds)))
+        kappa = menger_curvature(pts, k)
+
+        self.X, self.Y, self.S = pts[:, 0].copy(), pts[:, 1].copy(), s
+        self.V = build_speed_profile(
+            s, kappa, self.base_velocity, self.v_lim, self.track,
+            self.profile_decel, self.creep_velocity, self.goal_tol)
+
+        # Tangent at the end, used to extend the path so the lookahead stays defined.
+        j = max(len(pts) - 1 - k, 0)
+        tx, ty = pts[-1, 0] - pts[j, 0], pts[-1, 1] - pts[j, 1]
+        norm = math.hypot(tx, ty)
+        self.end_tx, self.end_ty = (tx / norm, ty / norm) if norm > 1e-9 else (1.0, 0.0)
+
+    def _resnap_late_goal(self):
+        """/goal_pose that arrives AFTER its /path: re-snap the end of the live path."""
+        if (not self.snap_goal or self.raw_pts is None or self.X is None
+                or self.state != "FOLLOW" or self.latest_goal is None):
+            return
+        gx, gy, _ = self.latest_goal
+        if (math.hypot(gx - self.raw_pts[-1, 0], gy - self.raw_pts[-1, 1]) <= self.snap_max_dist
+                and math.hypot(gx - self.X[-1], gy - self.Y[-1]) > 1e-4):
+            self._build_path(self.raw_pts)
+            self.last_idx = min(self.last_idx, len(self.X) - 1)
 
     def _match_goal(self):
         if self.latest_goal is None or self.X is None:
@@ -301,22 +355,8 @@ class PurePursuitNode(Node):
             self.get_logger().warn("received a path with fewer than 2 distinct points -- ignored")
             return
 
-        pts = simplify_dp(pts, self.simplify_tol)
-        pts, s = resample(pts, self.resample_step)
-        ds = max(float(s[-1]) / max(len(s) - 1, 1), 1e-6)
-        k = max(1, int(round(self.curv_window / 2.0 / ds)))
-        kappa = menger_curvature(pts, k)
-
-        self.X, self.Y, self.S = pts[:, 0].copy(), pts[:, 1].copy(), s
-        self.V = build_speed_profile(
-            s, kappa, self.base_velocity, self.v_lim, self.track,
-            self.profile_decel, self.creep_velocity, self.goal_tol)
-
-        # Tangent at the end, used to extend the path so the lookahead stays defined.
-        j = max(len(pts) - 1 - k, 0)
-        tx, ty = pts[-1, 0] - pts[j, 0], pts[-1, 1] - pts[j, 1]
-        norm = math.hypot(tx, ty)
-        self.end_tx, self.end_ty = (tx / norm, ty / norm) if norm > 1e-9 else (1.0, 0.0)
+        self.raw_pts = pts.copy()
+        self._build_path(pts)
 
         self.path_goal_yaw = None
         self._match_goal()
@@ -326,8 +366,10 @@ class PurePursuitNode(Node):
         self.rotating = False
         self.avoid_dir = 0
         self.state = "FOLLOW"             # self.v is kept: a replan mid-motion stays smooth
+        s = self.S
         self.get_logger().info(
-            f"new path: {len(msg.poses)} grid pts -> {len(pts)} pts, {s[-1]:.2f} m, "
+            f"new path: {len(msg.poses)} grid pts -> {len(self.X)} pts, {s[-1]:.2f} m, "
+            f"end ({self.X[-1]:.3f}, {self.Y[-1]:.3f}), "
             f"goal heading {'%.0f deg' % math.degrees(self.path_goal_yaw) if self.path_goal_yaw is not None else 'n/a'}")
 
     def laser_callback(self, msg: LaserScan):
@@ -417,7 +459,50 @@ class PurePursuitNode(Node):
         self.y_pos = t.transform.translation.y
         q = t.transform.rotation
         _, _, self.yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        # smooth odometry yaw, used only to measure rotation progress (item 12)
+        try:
+            to = self.tf_buffer.lookup_transform(self.odom_frame, "roomba", Time())
+            age = (self.get_clock().now() - Time.from_msg(to.header.stamp)).nanoseconds * 1e-9
+            if self.tf_timeout > 0.0 and age > self.tf_timeout:
+                self.odom_yaw = None
+            else:
+                qo = to.transform.rotation
+                _, _, self.odom_yaw = euler_from_quaternion([qo.x, qo.y, qo.z, qo.w])
+        except TransformException:
+            self.odom_yaw = None
         return True
+
+    # ---- in-place rotation tracking (item 12) ----
+    def _rot_yaw(self):
+        """(yaw, source): odom yaw when available, else the map yaw as a fallback."""
+        if self.odom_yaw is not None:
+            return self.odom_yaw, "odom"
+        return self.yaw, "map"
+
+    def _begin_rotation(self, remaining, now):
+        """Latch the turn: `remaining` (signed) is integrated from here on, so its sign
+        (the direction) cannot flip because of a pose jump or a target near +-180 deg."""
+        self.rot_remaining = remaining
+        self.rot_prev, self.rot_src = self._rot_yaw()
+        self.rot_start = now
+
+    def _rotation_step(self):
+        yaw, src = self._rot_yaw()
+        if src == self.rot_src:
+            self.rot_remaining -= wrap_pi(yaw - self.rot_prev)
+        else:                                  # source switched: no delta across the switch
+            self.rot_src = src
+        self.rot_prev = yaw
+        return self.rot_remaining
+
+    def _rotation_timed_out(self, now):
+        return (self.rot_timeout > 0.0 and self.rot_start is not None
+                and (now - self.rot_start).nanoseconds * 1e-9 > self.rot_timeout)
+
+    def _rotation_cmd(self, remaining):
+        return math.copysign(
+            min(max(self.rot_gain * abs(remaining), self.rot_w_min), self.rot_w_max), remaining)
 
     def _scan_is_stale(self, now):
         if self.scan_timeout <= 0.0:
@@ -503,7 +588,8 @@ class PurePursuitNode(Node):
         remaining = float(self.S[-1]) - s_proj
         dist_end = math.hypot(self.X[-1] - self.x_pos, self.Y[-1] - self.y_pos)
 
-        if remaining <= self.goal_tol or dist_end <= self.goal_tol:
+        # reached = within goal_tol of the goal point, or the path end is reached (along-track)
+        if remaining <= 1e-3 or dist_end <= self.goal_tol:
             self._position_reached(now)
             return
         if cte > self.max_cross_track:
@@ -522,11 +608,19 @@ class PurePursuitNode(Node):
 
         # alpha gate with hysteresis (item 1)
         if self.rotating:
-            if abs(alpha) < self.rot_exit:
+            rem = self._rotation_step()
+            if abs(rem) < self.rot_exit:
                 self.rotating = False
+            elif self._rotation_timed_out(now):
+                self._finish("LOST", f"in-place rotation not finishing after {self.rot_timeout:.0f} s "
+                                     f"({math.degrees(rem):+.0f} deg left) -- stopped", warn=True)
+                return
         elif abs(alpha) > self.rot_enter:
             self.rotating = True
-            self.get_logger().info(f"target {math.degrees(alpha):+.0f} deg off heading -- rotating in place")
+            self._begin_rotation(alpha, now)
+            self.get_logger().info(
+                f"target {math.degrees(alpha):+.0f} deg off heading -- rotating in place "
+                f"({'CCW' if alpha >= 0.0 else 'CW'}, latched, odom-tracked)")
 
         v_scale = self._obstacle_scale()
         urgency = 1.0 - v_scale                       # applied exactly once (item 7)
@@ -557,8 +651,7 @@ class PurePursuitNode(Node):
         self.v = min(self.v, v_cap)                    # hard guard, never exceeds the caps
 
         if self.rotating:
-            w = math.copysign(
-                min(max(self.rot_gain * abs(alpha), self.rot_w_min), self.rot_w_max), alpha)
+            w = self._rotation_cmd(self.rot_remaining)
         else:
             w_pp = self.v * kappa                      # curvature preserved, v already final
             w = (1.0 - urgency) * w_pp + urgency * self.avoid_dir * self.avoid_w
@@ -572,6 +665,7 @@ class PurePursuitNode(Node):
             self.state = "ALIGN"
             self.align_start = now
             self._reset_motion()
+            self._begin_rotation(wrap_pi(self.path_goal_yaw - self.yaw), now)
             self._publish(0.0, 0.0)
             self.get_logger().info(
                 f"position reached -- aligning to goal heading {math.degrees(self.path_goal_yaw):+.0f} deg")
@@ -579,16 +673,14 @@ class PurePursuitNode(Node):
             self._finish("DONE", "goal reached")
 
     def _align_step(self, now):
-        err = wrap_pi(self.path_goal_yaw - self.yaw)
+        err = self._rotation_step()          # latched, odom-tracked remaining angle
         if abs(err) <= self.yaw_tol:
             self._finish("DONE", f"goal reached, heading error {math.degrees(err):+.1f} deg")
         elif (now - self.align_start).nanoseconds * 1e-9 > self.align_timeout:
             self._finish("DONE", f"heading alignment timed out, error {math.degrees(err):+.1f} deg",
                          warn=True)
         else:
-            w = math.copysign(
-                min(max(self.rot_gain * abs(err), self.rot_w_min), self.rot_w_max), err)
-            self._publish(0.0, w)
+            self._publish(0.0, self._rotation_cmd(err))
 
 
 def main(args=None):
