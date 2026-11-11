@@ -2,7 +2,7 @@
 
 A small autonomous mobile robot that maps, plans and drives on its own. A **Raspberry Pi 5** runs ROS 2 (SLAM, planning, control); an **ESP32** closes the wheel-speed loops. The same launch file runs the full stack in **Gazebo simulation** or on the **real robot**.
 
-> **Status:** the full stack runs on the real robot. Motor firmware, wheel odometry and the EKF are calibrated on the floor, and point-to-point navigation has been tested. **Still to be tested: goal-reaching accuracy and precision** — see [Project status](#project-status).
+> **Status:** the full stack runs on the real robot. Motor firmware, wheel odometry and the EKF are calibrated on the floor, and point-to-point navigation has been tested. **Goal-reaching accuracy has now been measured on 15 real runs (≈ 6 cm mean goal error)** — see [Experimental results](#experimental-results).
 
 **Install, run, calibrate →** [`SETUP_AND_CALIBRATION.md`](SETUP_AND_CALIBRATION.md)
 
@@ -27,7 +27,7 @@ A small autonomous mobile robot that maps, plans and drives on its own. A **Rasp
 | Geometry | wheel Ø 70 mm · track 240 mm · footprint 200 × 200 mm · caster at x = −0.10 m |
 | Speed limit | **0.25 m/s per wheel** (≈ 0.25 m/s linear, ≈ 2.08 rad/s spin), enforced in sim and hardware |
 | Sensors | YDLidar (serial, `/dev/roomba_lidar`) · BNO055 IMU (I²C bus 1, IMUPLUS mode) · wheel encoders |
-| Link | ESP32 ↔ Pi: USB serial, 115200 baud, text protocol, 50 Hz telemetry |
+| Link | ESP32 ↔ Pi: USB serial, 115200 baud, text protocol, telemetry streamed while moving (period set with `T <ms>`, 10–1000 ms, default 20 ms) |
 | Software | ROS 2 Jazzy · `ros2_control` · `robot_localization` EKF · `slam_toolbox` · Gazebo (`ros_gz`) |
 | Languages | Python (nodes), C++ (hardware interface), Arduino C++ (firmware) |
 
@@ -68,11 +68,11 @@ A small autonomous mobile robot that maps, plans and drives on its own. A **Rasp
 | `cmd_relay` | `/cmd_vel_unstamped` → wheel speeds (capped); wheel odometry → `/odometry` |
 | `bno055_imu_node` | BNO055 → `/imu` (yaw zeroed at start after a 1.5 s settle) |
 | `manager_node` | Brings up slam_toolbox / map saver, resumes saved maps, enables nodes via `/manager/enable_states` |
-| `map_validator` | Filters SLAM maps → `/validated_map`; saves final map to `~/roomba/saved_maps` |
+| `map_validator` | Pass/fail check of SLAM maps → `/validated_map` (valid flag, fail reason, map→odom jump, loop-closure flag); saves candidate maps only when valid and map→odom is not jumping |
 | `frontier_explorer` / `reactive_explorer` | Exploration goals / reactive wandering |
 | `a_star` (`astar2.py`) | Global planner on an 8-connected grid (0.05 m cells); `hybrid_astar` is the older lattice planner |
 | `pure_pursuit` | Path tracker with rotate-in-place gate, curvature speed profile, lidar avoidance, accel limiter |
-| `data_logger` | CSV logs to `~/roomba/collected_data` |
+| `data_logger` | CSV logs to `~/roomba/collected_data` (odom, TF, joint states, wheel commands, validated map, map grids); also enabled in nav-test mode (`enable_data_logger`, default true) |
 | `manual_motion_test` | Terminal tool: `straight`, `turn`, `velocity` with odometry feedback (for calibration) |
 
 ## Repository layout
@@ -88,6 +88,7 @@ roomba/
 │   ├── custom_interfaces/    msgs: Validatedmap, NodeEnableStates
 │   ├── urdfs/                xacro robot models (sim + hardware), RViz configs
 │   └── ydlidar_ros2_driver/  vendored YDLidar ROS 2 driver
+├── tools/                    experiment_analyser.py + measured_template.txt (multi-run analysis, see below)
 ├── esp32_codes/
 │   ├── dual_motor_controller_FINAL.txt   ESP32 firmware v4.2 (flash this)
 │   ├── calibration/                      open-loop calibration rig, host script, firmware simulator
@@ -106,6 +107,26 @@ ros2 launch program_bringup startup.launch.py               # mode: sim by defau
 
 Prerequisites, ROS packages, udev rules, firmware flashing, hardware bring-up and the calibration procedure are in **[`SETUP_AND_CALIBRATION.md`](SETUP_AND_CALIBRATION.md)**. A short reference for the launch system is in [`src/program_bringup/README.md`](src/program_bringup/README.md).
 
+## Experimental results
+
+Each run is stored in `run_N/` (logger CSVs, saved map, and a hand-filled `measured.txt` — template in `tools/measured_template.txt`). `python3 tools/experiment_analyser.py <experiment_dir>` compiles all runs into `results/` (`results.csv`, `summary.txt`, `report.html`, plots). `--selftest` runs a synthetic check.
+
+**15 real-hardware runs** (point-to-point goals; runs 1–9 single legs, 10–15 long runs ending at the start), measured with tape:
+
+| Metric | Result |
+|---|---|
+| Goal error | 6.0 ± 2.8 cm (min 2, max 11 cm); logged pose vs tape: 6.3 cm |
+| Typical bias | stops 1–7 cm short in x (likely goal tolerance, not yet confirmed) |
+| SLAM map→odom | 19 loop-closure steps over all runs, each 2–16 cm / ≤ 6.4°; consistent with validator flags |
+| Wheel / linear velocity gain | ≈ 0.98 / 1.00–1.02 |
+| **Angular velocity gain** | **0.64 ± 0.11** — turns slower than commanded (hypothesis: skid-steer slip, effective track > 0.24 m; unconfirmed) |
+| **Stationary yaw drift** | **≈ 4.6 °/min** in odom and map frame alike (hypothesis: uncorrected gyro bias) |
+| Robot idle fraction | ≈ 78 % |
+
+Caveats: map-size error is only meaningful for runs where the room was fully mapped (runs 2, 3, 9, 10 ≈ ±8 %); measured yaw was mostly recorded as 0, so yaw error is unreliable; run 12 was degraded (wheel gain 0.85, 0.27 m drift, 23 % invalid map snapshots — cause unknown).
+
+Next checks: 360° in-place turn test (confirms/refutes effective track width), raw IMU yaw rate while stationary, battery voltage for runs 10–12.
+
 ## Project status
 
 | Area | Implemented | Hardware-validated |
@@ -113,7 +134,7 @@ Prerequisites, ROS packages, udev rules, firmware flashing, hardware bring-up an
 | ESP32 firmware (PI loops, ramps, watchdog) | ✅ | ✅ closed-loop and floor tests |
 | Wheel odometry, EKF, IMU | ✅ | ✅ on-floor calibration done |
 | SLAM, validator, explorers | ✅ | ✅ live mapping and exploration demonstrated |
-| A\*, pure pursuit, avoidance | ✅ | ✅ point-to-point navigation tested · ⏳ **goal-reaching accuracy and precision** (remaining test) |
+| A\*, pure pursuit, avoidance | ✅ | ✅ point-to-point navigation tested · ✅ goal accuracy ≈ 6 cm over 15 runs (see results) · ⏳ turning-rate gain and stationary yaw drift to be investigated |
 | Camera | simulation model only | — |
 
 Known open items: the encoder constants in the firmware (5075 / 5077) differ from the 5070 used in the comments and calibration tools (confirm they are intentional), and some Python dependencies are not yet declared in `package.xml` (the setup guide lists them explicitly).
