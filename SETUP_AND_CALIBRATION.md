@@ -3,7 +3,7 @@
 Step-by-step guide to download, build, run (simulation and real robot) and calibrate the Roomba. Overview and architecture are in [`README.md`](README.md).
 
 **How to read the status marks in this guide**
-- Commands come from the repository's own files and documentation (`startup.launch.py`, `startup.yaml`, `program_bringup/README.md`, the calibration scripts, the firmware header).
+- Commands come from the repository's own files and documentation (the four `roomba_*.launch.xml` files, `program_bringup/launch/README.md`, the manager node docstring, the calibration scripts, the firmware header).
 - Nothing here has been executed by the author of this document. Treat every command as *unverified* until it works on your machine, and read the output of each step before moving on.
 - `apt` package names are the usual ROS 2 Jazzy names; if one is not found, run `apt search <name>`.
 
@@ -103,23 +103,31 @@ source install/setup.bash
 
 ## 4. Run the simulation
 
-`src/program_bringup/config/startup.yaml` ships with `mode: sim`.
-
 ```bash
-ros2 launch program_bringup startup.launch.py
+ros2 launch program_bringup roomba_sim.launch.xml
 ```
-This starts Gazebo (server only, `small_house.world`), spawns the robot, and runs the whole stack: EKF, SLAM, validator, explorers, A\*, pure pursuit, manager, data logger, RViz.
+This starts Gazebo (server only, `small_house.world`), spawns the robot, and runs the whole stack: simulated clock, bridge, joystick chain, SLAM, EKF, A\*, pure pursuit, validator, explorers, manager, data logger and RViz.
 
-Useful `startup.yaml` switches (edit, then relaunch):
+There are four self-contained launch files (every node is written in the file itself):
 
-| Setting | Meaning |
+| File | What runs |
 |---|---|
-| `mode: sim` / `hardware` | choose environment |
-| `sim.world`, `sim.gz_flags`, `sim.rviz` | Gazebo world, flags (`-r -s -v 1`), RViz on/off |
-| `nodes.joystick/slam/ekf/global_planner/local_planner/map_validator/frontier_explorer/reactive_explorer/manager/data_logger` | `false` leaves that node out |
-| `slam_config`, `ekf_config`, `rviz_config` | override default config files (`null` = default) |
+| `roomba_sim.launch.xml` | Gazebo simulation, full stack |
+| `roomba_prod.launch.xml` | real robot (run on the Pi), full stack, RViz off |
+| `roomba_odom_test.launch.xml` | hardware odometry test: ESP32 + BNO055 + controllers + `cmd_relay` only |
+| `roomba_nav_test.launch.xml` | hardware navigation test: lidar, SLAM, EKF, A\*, pure pursuit, validator, `twist_mux`, `manual_test_bringup`, data logger |
 
-A typo in `startup.yaml` (unknown key, wrong type, missing file) stops the launch with a message naming the problem. Use another config with `startup_config:=/path/to/file.yaml`.
+Settings are launch arguments with defaults at the top of each file. List them and override on the command line:
+```bash
+ros2 launch program_bringup roomba_sim.launch.xml --show-args
+ros2 launch program_bringup roomba_sim.launch.xml world:=/path/to/other.world rviz:=false
+```
+- `sim` and `prod` have an `enable_<node>` switch for joystick, slam, ekf, global_planner, local_planner, map_validator, frontier_explorer, reactive_explorer, manager and data_logger (all default `true`).
+- `sim` also has `world`, `gz_flags` (`-r -s -v 1`), `rviz`, `rviz_config`, `slam_config`, `ekf_config`.
+- `prod` also has `enable_lidar`, `enable_imu`, `serial_port`, `baud_rate`, `rviz` (default `false`) plus the config overrides.
+- `nav_test` has `serial_port`, `baud_rate`, `rviz`, `enable_imu`, `enable_data_logger`; `odom_test` has `serial_port`, `baud_rate`, `rviz`, `enable_imu`.
+
+An unknown argument stops the launch with an error. After editing a launch file or config, run `colcon build --packages-select program_bringup` (not needed with `--symlink-install`).
 
 ---
 
@@ -186,17 +194,11 @@ then edit the two `KERNELS==` values in the copied rule. Label the cables at the
 - **Camera:** no hardware camera support in this repository.
 
 ### 5.6 Configure for hardware
-In `src/program_bringup/config/startup.yaml`:
-```yaml
-mode: hardware
-hardware:
-  serial_port: /dev/roomba_esp32
-  baud_rate: 115200
-  rviz: false      # run RViz on the laptop instead
-  lidar: true
-  imu: true
+No mode switch is needed: use the `roomba_prod`, `roomba_nav_test` or `roomba_odom_test` launch file. Defaults are `serial_port:=/dev/roomba_esp32`, `baud_rate:=115200`, RViz off. Override on the command line if needed:
+```bash
+ros2 launch program_bringup roomba_prod.launch.xml serial_port:=/dev/ttyUSB0 enable_lidar:=false
 ```
-With `--symlink-install` the change is live; otherwise rebuild `program_bringup`.
+The ESP32 hardware interface requests a 20 ms telemetry period (`T 20`) after connecting. `/joint_states` is published at the controller update rate (100 Hz, `controllers.yaml`), so its message spacing is 10 ms even though the ESP32 sends new wheel data about every 20 ms.
 
 ---
 
@@ -206,14 +208,14 @@ Do these in order, with the **wheels lifted** until step 6.4.
 
 **6.1 Link check** — launch the odometry-only test mode (no lidar, no SLAM):
 ```bash
-ros2 launch program_bringup startup.launch.py manual_test:=true manual_autonomy:=false
+ros2 launch program_bringup roomba_odom_test.launch.xml
 ```
-`manual_test:=true` forces `mode: hardware` and starts only the robot description, `ros2_control` + ESP32 interface, controllers, IMU, `cmd_relay` and the terminal tool support. (`manual_autonomy` defaults to `true`, which also starts lidar, SLAM, EKF and the planners, so set it to `false` for pure odometry testing.)
+This starts only the robot description, `ros2_control` + ESP32 interface, controllers, BNO055 IMU and `cmd_relay`. No lidar, EKF, SLAM, planners or data logger.
 
 **6.2 Check topics** (second terminal, workspace sourced):
 ```bash
 ros2 control list_hardware_interfaces      # left/right wheel velocity cmd + position/velocity state
-ros2 topic hz /joint_states                # expect ~ controller update rate
+ros2 topic hz /joint_states                # expect ~100 Hz (controller update rate)
 ros2 topic echo /odometry --once
 ros2 topic echo /imu --once
 ```
@@ -282,7 +284,7 @@ Rebuild `urdfs`/`program_bringup` if you are not using `--symlink-install`.
 Use the odometry-only mode from 6.1 on a flat, high-friction surface with a tape measure and a marked start line.
 
 ```bash
-ros2 launch program_bringup startup.launch.py manual_test:=true manual_autonomy:=false
+ros2 launch program_bringup roomba_odom_test.launch.xml
 ros2 run helpers manual_motion_test
 ```
 Terminal commands: `straight <cm>`, `turn <degrees>`, `velocity <m/s> <rad/s> <s>`, `stop`, `odom`, `help`, `quit`. After each motion the tool prints requested vs measured distance/angle and a settled-odometry report, with an IMU/EKF cross-check.
@@ -321,24 +323,60 @@ Run the autonomy test mode (section 8.1) and check, in RViz with the Fixed Frame
 
 ## 8. Autonomous operation
 
-### 8.1 Supervised test mode (RViz goals, no exploration)
+### 8.1 Supervised navigation test (RViz goals, no exploration)
 ```bash
-ros2 launch program_bringup startup.launch.py manual_test:=true manual_autonomy:=true
+ros2 launch program_bringup roomba_nav_test.launch.xml
 ```
-Starts lidar, SLAM, EKF, A\*, pure pursuit, `map_validator`, `twist_mux` and `manual_test_bringup` (which activates slam_toolbox/map saver and enables the planners). There is no manager, no explorers and no joystick. In RViz (from your laptop, section 9) use **2D Goal Pose**. Do **not** run `manual_motion_test` at the same time: it also broadcasts `odom → roomba` and clashes with the EKF. Keep a hand on the power switch for the first runs.
+Starts lidar, SLAM, EKF, A\*, pure pursuit, `map_validator`, `twist_mux`, `manual_test_bringup` (which activates slam_toolbox/map saver and enables the planners) and the **data logger** (`enable_data_logger:=false` to turn it off). There is no manager, no explorers and no joystick. Give goals from RViz (laptop, section 9) with **2D Goal Pose**, or from a terminal:
+```bash
+ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped \
+  "{header: {frame_id: map}, pose: {position: {x: 1.0, y: 0.0}, orientation: {w: 1.0}}}"
+```
+Do **not** run `manual_motion_test` at the same time: it also broadcasts `odom → roomba` and clashes with the EKF. Keep a hand on the power switch for the first runs.
 
 ### 8.2 Full stack
-Set `mode: hardware` in `startup.yaml`, then:
 ```bash
-ros2 launch program_bringup startup.launch.py
+ros2 launch program_bringup roomba_prod.launch.xml
 ```
-The manager activates SLAM, can resume the newest complete map from `~/roomba/saved_maps` (it needs a `.yaml` + `.posegraph` + `.data` + `.pgm` set), enables the validator, explorers and planners, and the frontier explorer publishes goals. The final map is saved to `~/roomba/saved_maps/final_map_<stamp>.*` when exploration completes. Logs go to `~/roomba/collected_data`.
+The manager runs a state machine (also published on `/manager/state`):
+```
+STARTUP -> no saved map: FULL_EXPLORATION
+        -> saved map:    AWAIT_INIT_POSE -> VERIFY_SAVED_MAP -> SWEEP
+FULL_EXPLORATION / SWEEP -> RETURN_HOME -> AWAIT_CONFIRM -> SAVING -> COMPLETE (or PENDING_PROMOTION)
+FULL_EXPLORATION -> RETURN_HOME -> DWELL_HOME -> FULL_EXPLORATION     (periodic revisit, revisit_distance_m > 0)
+```
+Commands (plain ROS 2, no joystick needed):
+```bash
+ros2 topic echo /manager/state
+# resuming a saved map: tell the manager where the robot is in the saved map frame
+ros2 topic pub --once /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \
+  "{header: {frame_id: map}, pose: {pose: {position: {x: 1.0, y: 2.0}, orientation: {z: 0.0, w: 1.0}}}}"
+ros2 service call /manager/return_home       std_srvs/srv/Trigger {}   # from FULL_EXPLORATION, SWEEP or AWAIT_CONFIRM
+ros2 service call /manager/confirm_save      std_srvs/srv/Trigger {}   # only in AWAIT_CONFIRM, and only if the map is VALID
+ros2 service call /manager/promote_candidate std_srvs/srv/Trigger {}   # only in PENDING_PROMOTION
+```
+There is no service to decline a save: simply do not call `confirm_save`.
+
+**Map storage** (`~/roomba/saved_maps`): the validator writes each saved map as a *candidate* in `saved_maps/candidates/map_<stamp>.{yaml,pgm,data,posegraph}` and refuses to save unless the map is valid and `map → odom` is not jumping. `saved_maps/CURRENT` is a one-line pointer to the map that will be resumed on the next start; `promote_candidate` moves it. Unpromoted candidates are never resumed. A map needs all four files (`.yaml`, `.posegraph`, `.data`, `.pgm`).
+
+Logs go to `~/roomba/collected_data` (section 8.5).
 
 ### 8.3 Joystick
-With `nodes.joystick: true`, a gamepad (`joy` → `joy_teleop` → `twist_mux`) has priority 99 over autonomy (90). Hold the deadman button (index 5) to drive; full stick = 0.25 m/s and 2.08 rad/s. Releasing the deadman stops the robot.
+With `enable_joystick:=true` (default in `prod` and `sim`), a gamepad (`joy` → `joy_teleop` → `twist_mux`) has priority 99 over autonomy (90). Hold the deadman button (index 5) to drive; full stick = 0.25 m/s and 2.08 rad/s. Releasing the deadman stops the robot.
 
 ### 8.4 Stopping
 Joystick deadman release, Ctrl-C on the launch, or power cut. There is no hardware e-stop logic in this repository; add a physical power switch.
+
+### 8.5 Logging and analysing experiments
+`data_logger` (enabled in `prod`, `sim` and `nav_test`) writes CSVs to `~/roomba/collected_data`: odometry, `map → roomba` TF, joint states, wheel commands, validated-map summary (valid, fail reason, map→odom jump, loop-closure flag) and map grids. `src/helpers/helpers/visualize_data_logs.py` plots one run.
+
+To compare many runs, copy each run's data and saved map into `experiment/run_N/`, add a filled `measured.txt` (template: `tools/measured_template.txt`), then:
+```bash
+python3 tools/experiment_analyser.py experiment/            # writes experiment/results/
+python3 tools/experiment_analyser.py --make-template        # print a blank measured.txt
+python3 tools/experiment_analyser.py --selftest             # synthetic check, no data needed
+```
+Output: `results.csv` (one row per run), `summary.txt`, `report.html`, plots. It reports goal/localization error, map→odom drift and loop-closure steps, wheel and body velocity tracking gains, stationary yaw drift, stops/in-place turns and map size. Optional arguments: `--wheel-radius`, `--track-width`, `--loop-jump-m`, `--loop-jump-rad`, `--no-plots`, `--legacy-plots`. Needs `numpy` and `matplotlib`.
 
 ---
 
@@ -346,7 +384,7 @@ Joystick deadman release, Ctrl-C on the launch, or power cut. There is no hardwa
 
 Run RViz on a laptop so the Pi's CPU is spent on the robot.
 
-1. Pi: `mode: hardware`, `hardware.rviz: false`; launch as above.
+1. Pi: launch `roomba_prod.launch.xml` (RViz stays off, `rviz:=false`).
 2. Both machines: ROS 2 Jazzy, same network/subnet, same `ROS_DOMAIN_ID` (put the export in `~/.bashrc` on both).
 3. Do not set `ROS_LOCALHOST_ONLY=1` or `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`; use the same `RMW_IMPLEMENTATION`; allow UDP between the machines; avoid Wi-Fi client isolation.
 4. Laptop:
@@ -354,7 +392,7 @@ Run RViz on a laptop so the Pi's CPU is spent on the robot.
    source /opt/ros/jazzy/setup.bash
    export ROS_DOMAIN_ID=<same as the Pi>
    ros2 topic list                        # /tf, /scan, /map, /robot_description should appear
-   rviz2 -d ~/roomba/src/urdfs/rviz/default.rviz
+   rviz2 -d ~/roomba/src/urdfs/rviz/default.rviz        # manual_test.rviz for the odometry test
    ```
    Do not set `use_sim_time` on the laptop. If the Fixed Frame `map` has no data yet, switch it to `odom`.
 5. Nothing visible? Multicast is probably blocked. Use a wired link/hotspot, or a Fast DDS discovery server (`ROS_DISCOVERY_SERVER=<pi-ip>:11811`).
@@ -363,7 +401,7 @@ Run RViz on a laptop so the Pi's CPU is spent on the robot.
 
 ## 10. Tests
 
-Unit and launch tests are in `src/helpers/test/` (`test_robot_dimensions.py`, `test_relay_safety.py`, `test_bno055_mount.py`, `test_startup_launch.py`) plus ament lint stubs.
+Unit and launch tests are in `src/helpers/test/` (`test_robot_dimensions.py`, `test_relay_safety.py`, `test_bno055_mount.py`) plus ament lint stubs.
 ```bash
 cd ~/roomba
 colcon test --packages-select helpers
@@ -377,10 +415,10 @@ These cover configuration consistency and relay/IMU logic only. They do not test
 
 | Symptom | Likely cause / action |
 |---|---|
-| Launch stops immediately with `[startup] ...` | `startup.yaml` typo, unknown key or missing file — the message names it |
+| Launch stops immediately with an argument error | unknown or misspelled launch argument — check `--show-args` |
 | `/dev/roomba_esp32` missing | udev rule not installed, or USB port differs — redo 5.4 |
 | `ESP32 serial link ... not connected` repeats | wrong port, no permission (`dialout` group), ESP32 not flashed, or Serial Monitor holding the port |
-| Joint states never change | no telemetry parsed yet; send `P` in a serial monitor; check baud 115200 and `T` setting (`T 40` if garbled) |
+| Joint states never change | no telemetry parsed yet; send `P` in a serial monitor; check baud 115200 and the `T` setting (`T 40` if garbled) |
 | Robot drives backwards / spins the wrong way | swap `left_motor_channel`/`right_motor_channel` in `src/urdfs/urdf/ros2_hardwareinterface.xacro` (currently left = B, right = A), or fix wiring/encoder polarity, then re-run 6.2–6.3 |
 | Wheels stop after ~0.5 s | expected: command timeout. Commands must be refreshed continuously |
 | Wheel stops and a FAULT is reported | polarity/runaway guard latched; fix the cause, send `S` |
@@ -399,6 +437,6 @@ These cover configuration consistency and relay/IMU logic only. They do not test
 
 - First run every new firmware or wiring change with the **wheels lifted**.
 - Keep the robot in a clear area for floor tests; stay within reach of the power switch.
-- Point-to-point navigation has been tested on the robot, but goal-reaching accuracy and precision have not been measured yet: keep supervising every autonomous run.
+- Point-to-point navigation has been tested on the robot (15 floor runs: mean goal error about 6 cm, max 11 cm), but turning is slower than commanded (angular velocity gain about 0.64) and yaw drifts about 4.6 °/min while stopped: keep supervising every autonomous run.
 - Keep the 0.25 m/s cap until the odometry and obstacle behaviour have been verified at that speed; the robot's unloaded top speed on the author's firmware is about 0.30 m/s, so there is little headroom under load or battery sag.
 - Do not move the lidar/ESP32 USB cables between ports without updating the udev rules.

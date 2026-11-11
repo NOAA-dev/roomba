@@ -1,6 +1,6 @@
 # Roomba — Autonomous Differential-Drive Robot (ROS 2 Jazzy)
 
-A small autonomous mobile robot that maps, plans and drives on its own. A **Raspberry Pi 5** runs ROS 2 (SLAM, planning, control); an **ESP32** closes the wheel-speed loops. The same launch file runs the full stack in **Gazebo simulation** or on the **real robot**.
+A small autonomous mobile robot that maps, plans and drives on its own. A **Raspberry Pi 5** runs ROS 2 (SLAM, planning, control); an **ESP32** closes the wheel-speed loops. The same stack runs in **Gazebo simulation** (`roomba_sim.launch.xml`) or on the **real robot** (`roomba_prod.launch.xml`).
 
 > **Status:** the full stack runs on the real robot. Motor firmware, wheel odometry and the EKF are calibrated on the floor, and point-to-point navigation has been tested. **Goal-reaching accuracy has now been measured on 15 real runs (≈ 6 cm mean goal error)** — see [Experimental results](#experimental-results).
 
@@ -55,7 +55,7 @@ A small autonomous mobile robot that maps, plans and drives on its own. A **Rasp
                                     └────────────────────────────────────────────────────────┘
 ```
 
-- **Single entry point:** `ros2 launch program_bringup startup.launch.py`. `config/startup.yaml` selects `mode: sim | hardware` and which nodes run.
+- **Launch files:** four self-contained files in `program_bringup/launch/` — `roomba_sim`, `roomba_prod`, `roomba_odom_test`, `roomba_nav_test` (`.launch.xml`). Settings are launch arguments, with an `enable_<node>` switch per node.
 - **One source of truth for geometry and limits:** `config/robot_dimensions.yaml` feeds the URDF, odometry, planners and avoidance.
 - **TF tree:** `map → odom` (slam_toolbox) → `roomba` (EKF) → `base_link` → wheels, caster, `lidar_link`, `imu_link`. The EKF base frame is named `roomba`.
 - **Safety layers:** per-wheel speed cap and 0.5 s command timeout in `cmd_relay`; 500 ms watchdog, reversal interlock and fault latch in the firmware; joystick has the highest `twist_mux` priority (99 vs 90).
@@ -80,7 +80,7 @@ A small autonomous mobile robot that maps, plans and drives on its own. A **Rasp
 ```
 roomba/
 ├── src/
-│   ├── program_bringup/      launch (startup.launch.py + modules/), config/*.yaml, udev rules, Gazebo world
+│   ├── program_bringup/      4 launch files, config/*.yaml, udev rules, Gazebo world
 │   ├── roomba_hardware/      ros2_control plugin for the ESP32 (C++: esp32_system_interface, serial_link)
 │   ├── helpers/              Python nodes: relay, bno055, manager, map_validator, explorers, logger, manual tests
 │   ├── global_planners/      a_star (octile, astar2.py) · hybrid_astar (a_star_node.py)
@@ -102,7 +102,7 @@ roomba/
 ```bash
 git clone https://github.com/NOAA-dev/roomba ~/roomba      # must live at ~/roomba (see setup guide)
 cd ~/roomba && colcon build --symlink-install && source install/setup.bash
-ros2 launch program_bringup startup.launch.py               # mode: sim by default
+ros2 launch program_bringup roomba_sim.launch.xml           # simulation (real robot: roomba_prod.launch.xml)
 ```
 
 Prerequisites, ROS packages, udev rules, firmware flashing, hardware bring-up and the calibration procedure are in **[`SETUP_AND_CALIBRATION.md`](SETUP_AND_CALIBRATION.md)**. A short reference for the launch system is in [`src/program_bringup/README.md`](src/program_bringup/README.md).
@@ -123,9 +123,7 @@ Each run is stored in `run_N/` (logger CSVs, saved map, and a hand-filled `measu
 | **Stationary yaw drift** | **≈ 4.6 °/min** in odom and map frame alike (hypothesis: uncorrected gyro bias) |
 | Robot idle fraction | ≈ 78 % |
 
-Caveats: map-size error is only meaningful for runs where the room was fully mapped (runs 2, 3, 9, 10 ≈ ±8 %); measured yaw was mostly recorded as 0, so yaw error is unreliable; run 12 was degraded (wheel gain 0.85, 0.27 m drift, 23 % invalid map snapshots — cause unknown).
-
-Next checks: 360° in-place turn test (confirms/refutes effective track width), raw IMU yaw rate while stationary, battery voltage for runs 10–12.
+Caveats: map-size error is only meaningful for runs where the room was fully mapped (runs 2, 3, 9, 10 ≈ ±8 %);
 
 ## Project status
 
@@ -136,8 +134,6 @@ Next checks: 360° in-place turn test (confirms/refutes effective track width), 
 | SLAM, validator, explorers | ✅ | ✅ live mapping and exploration demonstrated |
 | A\*, pure pursuit, avoidance | ✅ | ✅ point-to-point navigation tested · ✅ goal accuracy ≈ 6 cm over 15 runs (see results) · ⏳ turning-rate gain and stationary yaw drift to be investigated |
 | Camera | simulation model only | — |
-
-Known open items: the encoder constants in the firmware (5075 / 5077) differ from the 5070 used in the comments and calibration tools (confirm they are intentional), and some Python dependencies are not yet declared in `package.xml` (the setup guide lists them explicitly).
 
 ## License
 
