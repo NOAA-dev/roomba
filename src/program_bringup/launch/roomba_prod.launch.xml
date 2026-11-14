@@ -129,7 +129,7 @@
         <param name="use_sim_time" value="$(var use_sim_time)"/>
     </node>
 
-    <node pkg="local_planners" exec="pure_pursuit" name="pure_pursuit_node" output="screen"
+    <node pkg="local_planners" exec="pure_pursuit_new" name="pure_pursuit_node" output="screen"
           if="$(var enable_local_planner)">
         <param from="$(var dims)"/>
         <param name="use_sim_time" value="$(var use_sim_time)"/>
