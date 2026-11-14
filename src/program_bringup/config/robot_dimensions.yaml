@@ -49,6 +49,6 @@
         y_m: 0.0                       # assumed centred (only "toward the rear" was measured)
         z_m: 0.101                     # [LEGACY] height above wheel centre; not measured; irrelevant to 2D EKF
       lidar:
-        x_m: 0.10                      # [LEGACY] hardware URDF only (sim lidar.xacro still uses x = 0)
+        x_m: 0.0                     
     limits:
       max_wheel_speed_m_s: 0.25

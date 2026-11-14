@@ -16,13 +16,7 @@ class ReactiveExplorerNode(Node):
         self.t = float()
         self.declare_parameter("min_distance", 1.2)
         self.declare_parameter("limits.max_wheel_speed_m_s", Parameter.Type.DOUBLE)
-        self.declare_parameter("forward_speed", 0.0)  # 0 -> use wheel-speed limit
-        # LIDAR is mounted 0.1m forward (+x) of base_link/robot center (see
-        # base_lidar_joint in roomba.urdf.xacro). Raw scan ranges are
-        # distances FROM THE SENSOR, not from robot center - a beam
-        # straight ahead reads ~0.1m shorter than the obstacle's true
-        # distance from center, and off-axis beams need the full (x,y)
-        # correction, not just a flat offset. See _range_from_center().
+        self.declare_parameter("forward_speed", 0.0)
         self.declare_parameter("lidar_offset_x", 0.1)
         self.min_distance = self.get_parameter("min_distance").value  # meters
         v_lim = self.get_parameter("limits.max_wheel_speed_m_s").value

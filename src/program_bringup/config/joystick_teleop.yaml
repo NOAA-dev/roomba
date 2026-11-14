@@ -17,5 +17,3 @@ joy_teleop:
           axis: 2
           scale: 2.08     # rad/s at full stick = cap / (track / 2), rounded down
           offset: 0.0
-
-          
