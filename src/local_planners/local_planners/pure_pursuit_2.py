@@ -53,7 +53,11 @@ class PurePursuitNode(Node):
         self.yaw = 0.0
         self.v = 0.0
         self.w = 0.0
-        self.lookahead = 3  
+        self.v_prev = 0.0
+        self.w_prev = 0.0
+        self.lookahead = 3 
+        self.max_accel = 0.30       # [m/s^2] reference: firmware 600 deg/s2 at r=0.035 m = 0.37 m/s2
+        self.max_decel = 0.50       # [m/s^2] reference: firmware 1200 deg/s2 at r=0.035 m = 0.73 m/s2 
 
         self.goal = None            # latest goal (x, y, yaw), may be missing or stale
         self.park_target = None     # (x, y, yaw or None), derived from traj end + goal
@@ -84,6 +88,10 @@ class PurePursuitNode(Node):
         self.align_rotating = False
         self.align_dir = 1.0
         self.align_enter, self.align_exit = math.radians(30.0), math.radians(10.0)
+        self.align_timeout = 12.0         # [s] give up on final heading after this long in ALIGN
+        self.align_t0 = None              # time ALIGN started
+        self.align_gave_up = False        # latched once the timeout fires
+        self.sent_stop = False
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -98,7 +106,7 @@ class PurePursuitNode(Node):
         self.publisher_ = self.create_publisher(Twist, "/autonomous_cmd_vel", 10)
 
         self.tf_timer = self.create_timer(0.01, self.check_tf)
-        self.control_timer = self.create_timer(0.05, self.control_loop)   # 20 Hz
+        self.control_timer = self.create_timer(0.025, self.control_loop)   # 40 Hz
 
     def enable_callback(self, msg: NodeEnableStates):
         self.enabled = msg.pure_pursuit
@@ -115,6 +123,11 @@ class PurePursuitNode(Node):
                 self.traj = None
                 self.path_key = None
                 self.reset_parking()
+                if self.enabled:
+                    self.halt()        # one zero cmd; phase is APPROACH so it is published
+            else:
+                self.align_gave_up = False    # fresh goal at the same spot: retry final yaw
+                self.align_t0 = None
         self.update_park_target()
 
     def reset_parking(self):
@@ -122,6 +135,8 @@ class PurePursuitNode(Node):
         self.park_phase = "APPROACH"
         self.park_rotating = False
         self.align_rotating = False
+        self.align_t0 = None
+        self.align_gave_up = False
 
     def update_park_target(self):
         if self.traj is None:
@@ -258,21 +273,41 @@ class PurePursuitNode(Node):
                 self.park_phase = "ALIGN"
         elif dist > self.pos_exit:
             self.park_phase = "APPROACH"
+            self.align_t0 = None             # pushed off the goal: fresh attempt
+            self.align_gave_up = False
 
         if self.park_phase != "APPROACH":                          # ALIGN / DONE
+            if self.align_gave_up:                                 # timed out earlier: stay parked
+                self.v = 0.0
+                self.w = 0.0
+                return
+
             err = 0.0 if gyaw is None else math.atan2(math.sin(gyaw - self.yaw), math.cos(gyaw - self.yaw))
             tol = self.yaw_exit if self.park_phase == "DONE" else self.yaw_tol
             if abs(err) <= tol:
                 self.park_phase = "DONE"
+                self.align_t0 = None
                 self.v = 0.0
                 self.w = 0.0
                 return
+
             self.park_phase = "ALIGN"
+            now = self.get_clock().now()
+            if self.align_t0 is None:
+                self.align_t0 = now
+            elif (now - self.align_t0).nanoseconds * 1e-9 > self.align_timeout:
+                self.get_logger().warn(f"Heading not reached within {self.align_timeout:.0f} s "f"(error {math.degrees(err):.1f} deg), giving up on final yaw.")
+                self.align_gave_up = True
+                self.park_phase = "DONE"
+                self.v = 0.0
+                self.w = 0.0
+                return
+
             w = float(np.clip(self.k_w * err, -self.w_max, self.w_max))
             if abs(w) < self.w_min:
                 w = math.copysign(self.w_min, err)
             self.v = 0.0
-            self.w = w  
+            self.w = w
             return
 
         # APPROACH: bearing to the goal in the robot frame
@@ -386,6 +421,14 @@ class PurePursuitNode(Node):
         return v_scaled, w_scaled
 
     def publish_cmds(self):
+        if self.park_phase == "DONE":
+            if self.sent_stop:
+                return
+            self.v = 0.0
+            self.w = 0.0
+            self.sent_stop = True
+        else:
+            self.sent_stop = False
         v , w = self.scale_velocities(self.v, self.w, self.max_wheel_speed, self.L_)
         cmd = Twist()
         cmd.linear.x = v
@@ -398,10 +441,9 @@ class PurePursuitNode(Node):
         self.publish_cmds()
 
     def control_loop(self):
-        if not self.enabled:
-            return
-        if (not self.pose_ok() or not self.scan_ok() or self.traj is None or self.park_target is None):
-            self.halt()
+        if (not self.enabled or not self.pose_ok() or not self.scan_ok()
+                or self.traj is None or self.park_target is None):
+            self.align_t0 = None
             return
 
         i, _ = self.nearest_index()
@@ -410,9 +452,15 @@ class PurePursuitNode(Node):
             if not self.once:
                 self.park_phase = "APPROACH"
                 self.park_rotating = False
+                self.align_t0 = None
+                self.align_gave_up = False
                 self.once = True
             self.parking_behavior()
         else:
+            self.park_phase = "APPROACH"      # left the parking zone, DONE is stale
+            self.park_rotating = False
+            self.align_t0 = None
+            self.align_gave_up = False
             if self.heading_alligned(i):
                 self.compute_velocities(i)
                 self.avoid_obstacles()
