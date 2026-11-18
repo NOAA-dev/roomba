@@ -128,7 +128,7 @@ Each run is stored in `run_N/` (logger CSVs, saved map, and a hand-filled `measu
 | Final map→odom drift (cm) | 9.2 ± 8.4 | 14.0 ± 7.1 | not clear | 0.10 |
 | Invalid map snapshots | 1.8 % | 9.7 % | not clear | 0.12 |
 
-**Like-for-like (return-to-start goal 0, 0 only; previous n = 6, new n = 10):** controller end error 5.4 → **2.3 cm** (median 4.1 → 0.9), tape goal error 7.5 → **5.1 cm**, localization error 8.0 → 5.8 cm. *\*Mann–Whitney; small samples, treat as a guide.* The comparison is not randomized — route mix, battery and map state differ between the groups.
+**Like-for-like (return-to-start goal 0, 0 only; previous n = 6, new n = 10):** controller end error 5.4 → **2.3 cm** (median 4.1 → 0.9), tape goal error 7.5 → **5.1 cm**, localization error 8.0 → 5.8 cm.; small samples, treat as a guide.* The comparison is not randomized — route mix, battery and map state differ between the groups.
 
 What changed in practice: the robot now parks within about 1 cm of its goal (one outlier, run 16 at 13.6 cm, raises the mean), the tape improvement is smaller because **localization error now dominates**, and the robot waits less between moves (idle 78 % → 56 % at the same speed). Linear and wheel velocity gains are slightly lower with the new controller (1.01 → 0.95, 0.98 → 0.94); this may reflect its command profile rather than hardware (not yet checked).
 
@@ -171,7 +171,6 @@ Next steps: 360° turn test, stationary IMU log and BNO055 calibration fix, repe
 | Experiment logging and analysis | ✅ (`data_logger`, `tools/experiment_analyser.py`) | ✅ used on all 27 runs |
 | Camera | simulation model only | — |
 
-Known open items: the encoder constants in the firmware (5075 / 5077) differ from the 5070 used in the comments and calibration tools (confirm they are intentional); some Python dependencies are not yet declared in `package.xml` (the setup guide lists them explicitly); `robot_dimensions.yaml` `lidar.x_m` was changed from 0.10 to 0.0, while `reactive_explorer` still defaults `lidar_offset_x` to 0.1 and the legacy controller's comments assume a 0.10 m forward lidar (confirm the intended value and that all nodes agree).
 
 ## License
 
