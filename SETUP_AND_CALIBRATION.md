@@ -273,7 +273,7 @@ Measure with calipers/ruler and enter in `src/program_bringup/config/robot_dimen
 | `robot.drive_wheel.radius_m` / `diameter_m` | wheel size (diameter must equal 2 × radius) |
 | `robot.drive_wheel.track_width_m` | wheel-centre to wheel-centre (not the body width) |
 | `robot.footprint.length_m / width_m` | body outline |
-| `robot.lidar.x_m`, `robot.imu.x_m` | sensor positions; `lidar.x_m` applies to the hardware model only |
+| `robot.lidar.x_m`, `robot.imu.x_m` | sensor positions; `lidar.x_m` is currently 0.0 (was 0.10 m); check it matches the real mounting |
 | `limits.max_wheel_speed_m_s` | per-wheel speed cap, sim and hardware (0.25) |
 
 `controllers.yaml` also contains `wheel_radius` and `wheel_separation` (for the unused `diff_drive_controller`); keep them equal to the shared file. `src/helpers/test/test_robot_dimensions.py` checks the consistency. If you change the speed cap, also check `joystick_teleop.yaml`, `twist_mux_joy.yaml` and `manual_motion_test` limits, which hold derived numbers.
