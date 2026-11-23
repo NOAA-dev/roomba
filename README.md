@@ -171,8 +171,6 @@ Next steps: 360° turn test, stationary IMU log and BNO055 calibration fix, repe
 | Experiment logging and analysis | ✅ (`data_logger`, `tools/experiment_analyser.py`) | ✅ used on all 27 runs |
 | Camera | simulation model only | — |
 
-Known open items: the encoder constants in the firmware (5075 / 5077) differ from the 5070 used in the comments and calibration tools (confirm they are intentional); some Python dependencies are not yet declared in `package.xml` (the setup guide lists them explicitly); `robot_dimensions.yaml` `lidar.x_m` was changed from 0.10 to 0.0, while `reactive_explorer` still defaults `lidar_offset_x` to 0.1 and the legacy controller's comments assume a 0.10 m forward lidar (confirm the intended value and that all nodes agree).
-
 ## License
 
 No license file for the project code is present in the repository. `src/ydlidar_ros2_driver` carries its own upstream license (`LICENSE.txt`).
